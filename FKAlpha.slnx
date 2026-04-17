@@ -1,0 +1,9 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/ソリューション項目/">
+    <File Path=".editorconfig" />
+  </Folder>
+  <Project Path="FKAlpha.vcxproj" Id="a0cce335-6d0d-48f2-976f-9927ed73672d" />
+</Solution>

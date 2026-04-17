@@ -65,7 +65,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	}
 
 	// 出力ウィンドウへの文字出力
-	OutputDebugStringA("Hallo,DirectX!\n");
+	OutputDebugStringA("Hello,DirectX!\n");
 
 	return 0;
 }

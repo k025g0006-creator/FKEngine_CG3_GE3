@@ -1,5 +1,12 @@
 #include <Windows.h>
 #include <cstdint>
+#include <string>
+#include <format>
+
+void Log(const std::string& message)
+{
+	OutputDebugStringA(message.c_str());
+}
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam){
 
@@ -54,15 +61,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	while (msg.message != WM_QUIT)
 	{
-		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) 
+		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
 		{
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
-		}else 
+		}
+		else
 		{
 
 		}
 	}
+
+	// 文字列を格納する
+	std::string str0{ "STRING!!!" };
+
+	// 整数を文字列にする
+	std::string str1{ std::to_string(10) };
+
+	// string->wstring
+	std::wstring ConvertString(const std::string & str);
+
+	// wstring->string
+	std::string ConvertString(const std::wstring & str);
 
 	// 出力ウィンドウへの文字出力
 	OutputDebugStringA("Hello,DirectX!\n");

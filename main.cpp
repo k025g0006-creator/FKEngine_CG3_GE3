@@ -2,11 +2,20 @@
 #include <cstdint>
 #include <string>
 #include <format>
+#include <filesystem>
+#include <fstream>
+#include <chrono>
 
 void Log(const std::string& message)
 {
 	OutputDebugStringA(message.c_str());
 }
+
+// string->wstring
+std::wstring ConvertString(const std::string& str);
+
+// wstring->string
+std::string ConvertString(const std::wstring& str);
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam){
 
@@ -23,6 +32,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam){
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow)
 {
+	// ログのディレクトリを用意
+	std::filesystem::create_directory("logs");
+
 	WNDCLASS wc{};
 
 	wc.lpfnWndProc = WindowProc;
@@ -77,12 +89,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// 整数を文字列にする
 	std::string str1{ std::to_string(10) };
-
-	// string->wstring
-	std::wstring ConvertString(const std::string & str);
-
-	// wstring->string
-	std::string ConvertString(const std::wstring & str);
 
 	// 出力ウィンドウへの文字出力
 	OutputDebugStringA("Hello,DirectX!\n");

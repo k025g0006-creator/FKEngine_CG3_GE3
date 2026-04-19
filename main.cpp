@@ -13,15 +13,45 @@ void Log(std::ostream& os, const std::string&message)
 }
 
 // string->wstring
-std::wstring ConvertString(const std::string& str);
+std::wstring ConvertString(const std::string& str) 
+{
+	if (str.empty())
+	{
+		return std::wstring();
+	}
+
+	auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
+	if (sizeNeeded == 0) 
+	{
+		return std::wstring();
+	}
+	std::wstring result(sizeNeeded, 0);
+	MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), &result[0], sizeNeeded);
+	return result;
+}
 
 // wstring->string
-std::string ConvertString(const std::wstring& str);
+std::string ConvertString(const std::wstring& str)
+{
+	if (str.empty())
+	{
+		return std::string();
+	}
+
+	auto sizeNeeded = WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), NULL, 0, NULL, NULL);
+	if (sizeNeeded == 0)
+	{
+		return std::string();
+	}
+	std::string result(sizeNeeded, 0);
+	WideCharToMultiByte(CP_UTF8, 0, str.data(), static_cast<int>(str.size()), result.data(), sizeNeeded, NULL, NULL);
+	return result;
+}
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam){
 
-	switch (msg) {
-
+	switch (msg)
+	{
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		return 0;
@@ -89,6 +119,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	ShowWindow(hwnd, nCmdShow);
 
+	Log(logStream, std::format("Application Started. Window Size: {}x{}", kClientWidth, kClientHeight));
+
 	MSG msg{};
 
 	while (msg.message != WM_QUIT)
@@ -106,13 +138,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// 文字列を格納する
 	std::string str0{ "STRING!!!" };
+	int number = 10;
 
 	// 整数を文字列にする
 	std::string str1{ std::to_string(10) };
 
-	// 出力ウィンドウへの文字出力
-	OutputDebugStringA("Hello,DirectX!\n");
-
+	Log(logStream, std::format("End Message: {}, Value: {}", str0, number));
+	Log(logStream, "Hello, DirectX! Shutdown successful.");
 
 	return 0;
 }

@@ -5,6 +5,11 @@
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <d3d12.h>
+#pragma comment(lib, "d3d12.lib")
+#include <dxgi1_6.h>
+#pragma comment(lib, "dxgi.lib")
+#include <cassert>
 
 void Log(std::ostream& os, const std::string&message)
 {
@@ -120,6 +125,73 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ShowWindow(hwnd, nCmdShow);
 
 	Log(logStream, std::format("Application Started. Window Size: {}x{}", kClientWidth, kClientHeight));
+
+	// DXGIファクトリーの生成
+	IDXGIFactory7* dxgiFactory = nullptr;
+
+	// 関数が成功したかどうかをSUCCEEDEDマクロで判定できる
+	HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
+
+	// 初期化の根本的な部分でエラーが出た場合はプログラムが間違っているか、どうにもできない場合が多いのでassertにしておく
+	assert(SUCCEEDED(hr));
+
+	// 使用するアダプター用の変数。最初にnullptrを入れておく
+	IDXGIAdapter4* useAdapter = nullptr;
+
+	// 良い順にアダプターを頼む
+	for (UINT i = 0; dxgiFactory->EnumAdapterByGpuPreference(i,
+		DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) !=
+		DXGI_ERROR_NOT_FOUND; i++) 
+	{
+
+		// アダプターの情報を取得する
+		DXGI_ADAPTER_DESC3 adapterDesc{};
+		hr = useAdapter->GetDesc3(&adapterDesc);
+
+		// 取得できないのは一大事
+		assert(SUCCEEDED(hr));
+
+		// ソフトウェアアダプタでなければ採用！
+		if (!(adapterDesc.Flags & DXGI_ADAPTER_FLAG3_SOFTWARE))
+		{
+			std::wstring wmsg = std::format(L"Use Adapter:{}\n", adapterDesc.Description);
+			Log(logStream, ConvertString(wmsg));
+			break;
+		}
+		useAdapter = nullptr;
+	}
+
+	// 適切なアダプターが見つからなかったので起動できない
+	assert(useAdapter != nullptr);
+			
+	ID3D12Device* device = nullptr;
+
+	// 機能レベルとログ出力用の文字列
+	D3D_FEATURE_LEVEL featureLevels[] =
+	{
+		D3D_FEATURE_LEVEL_12_2, D3D_FEATURE_LEVEL_12_1, D3D_FEATURE_LEVEL_12_0
+	};
+	const char* featureLevelStrings[] =
+	{
+		"12.2", "12.1", "12.0"
+	};
+	
+	// 高い順に生成できるか試していく
+	for (size_t i = 0; i < _countof(featureLevels); ++i)
+	{
+		hr = D3D12CreateDevice(useAdapter, featureLevels[i], IID_PPV_ARGS(&device));
+
+		if (SUCCEEDED(hr))
+		{
+			std::string msg = std::format("Feature Level: {}\n", featureLevelStrings[i]);
+			Log(logStream, msg);
+			break;
+		}
+	}
+
+	assert(device != nullptr);
+	Log(logStream, "Complete create D3D12Device!!!\n");
+	
 
 	MSG msg{};
 

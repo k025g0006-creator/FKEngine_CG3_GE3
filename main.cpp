@@ -48,8 +48,8 @@ std::string ConvertString(const std::wstring& str)
 	return result;
 }
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam){
-
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
 	switch (msg)
 	{
 	case WM_DESTROY:

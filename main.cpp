@@ -243,7 +243,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 	}
 
-
 	// 文字列を格納する
 	std::string str0{ "STRING!!!" };
 	int number = 10;

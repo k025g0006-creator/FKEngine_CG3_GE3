@@ -68,7 +68,7 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 
 	// processId(このexeのId)とクラッシュ(例外)の発生したthreadIdを取得
 	DWORD processId = GetCurrentProcessId();
-	DWORD threadId = GetCurrentProcessId();
+	DWORD threadId = GetCurrentThreadId();
 
 	// 設定情報を入力
 	MINIDUMP_EXCEPTION_INFORMATION minidumpInformation{ 0 };

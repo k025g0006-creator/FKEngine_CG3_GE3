@@ -13,6 +13,8 @@
 #include <dbghelp.h>
 #pragma comment(lib, "Dbghelp.lib")
 #include <strsafe.h>
+#include <dxgidebug.h>
+#pragma comment(lib,"dxguid.lib")
 
 void Log(std::ostream& os, const std::string&message)
 {
@@ -107,8 +109,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 		// さらにGPU側でもチェックを行うようにする
 		debugController->SetEnableGPUBasedValidation(TRUE);
-
-		debugController->Release();
 	}
 #endif
 
@@ -467,6 +467,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	device->Release();
 	useAdapter->Release();
 	dxgiFactory->Release();
+#ifdef _DEBUG
+	// リソースリークチェック
+	IDXGIDebug1* debug;
+	if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug))))
+	{
+		debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+		debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+		debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+		debug->Release();
+	}
+	debugController->Release();
+#endif
+	CloseWindow(hwnd);
 
 	return 0;
 }

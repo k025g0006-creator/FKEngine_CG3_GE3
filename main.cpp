@@ -623,10 +623,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	Vector4* materialData = nullptr;
 
 	// 書き込むためのアドレスを取得
-	materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	hr = materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
+	assert(SUCCEEDED(hr));
 
 	// 今回は赤
-	*materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+	*materialData = Vector4{ 1.0f, 0.0f, 0.0f, 1.0f };
 
 	// VBV
 	// 頂点バッファビューを作成する
@@ -645,7 +646,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	Vector4* vertexData = nullptr;
 
 	// 書き込むためのアドレスを取得
-	vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
+	assert(SUCCEEDED(hr));
 
 	// 左下
 	vertexData[0] = { -0.5f, -0.5f, 0.0f, 1.0f };

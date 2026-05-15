@@ -98,6 +98,7 @@ StyleCopReport.xml
 *.scc
 *.dmp
 Dumps/
+imgui.ini
 
 # Chutzpah Test files
 _Chutzpah*

@@ -678,12 +678,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	TransformationMatrix* transformationMatrixData = nullptr;
 
 	// 書き込むためのアドレスを取得
-	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&wvpData));
 
 	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixData));
 
 	// 単位行列を書き込んでおく
-	*wvpData = MakeIdentity4x4();
+	transformationMatrixData->WVP = MakeIdentity4x4();
 
 	// VBV
 	// 頂点バッファビューを作成する

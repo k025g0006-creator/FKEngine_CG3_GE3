@@ -6,4 +6,5 @@
     <File Path=".editorconfig" />
   </Folder>
   <Project Path="FKAlpha.vcxproj" Id="a0cce335-6d0d-48f2-976f-9927ed73672d" />
+  <Project Path="FKAlpha/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77" />
 </Solution>

@@ -1,5 +1,15 @@
 #pragma once
 
+// 2次元ベクトルクラス
+class Vector2
+{
+public:
+    float x, y;
+
+    Vector2();
+    Vector2(float x, float y);
+};
+
 class Vector3
 {
 public:

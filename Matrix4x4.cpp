@@ -1,6 +1,11 @@
 #include "Matrix4x4.h"
 #include <cmath>
 
+Vector2::Vector2() : x(0.0f), y(0.0f) 
+{
+
+}
+
 Vector3::Vector3() : x(0.0f), y(0.0f), z(0.0f)
 {
 

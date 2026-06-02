@@ -1051,6 +1051,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::Begin("Material Window");
 			ImGui::ColorEdit4("Color", colorArray);
+			ImGui::DragFloat3("Scale", &transform.scale.x, 0.01f);
+			ImGui::DragFloat3("Rotation", &transform.rotate.x, 0.01f);
+			ImGui::DragFloat3("Translation", &transform.translate.x, 0.01f);
+
 			ImGui::End();
 
 			ImGui::Render();

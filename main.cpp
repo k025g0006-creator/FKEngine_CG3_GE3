@@ -992,6 +992,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
 
+	UINT srvDescriptorSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 	// Textureを読んで転送する
 	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
@@ -1030,6 +1031,25 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// SRVの生成
 	device->CreateShaderResourceView(textureResource, &srvDesc, textureSrvHandleCPU);
 
+	// 2枚目のテクスチャ
+	DirectX::ScratchImage mipImages2 = LoadTexture("resources/monsterBall.png");
+	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
+	ID3D12Resource* textureResource2 = CreateTextureResource(device, metadata2);
+	ID3D12Resource* intermediateResource2 = UploadTextureData(textureResource2, mipImages2, device, commandList);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
+	srvDesc2.Format = metadata2.format;
+	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = textureSrvHandleCPU;
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = textureSrvHandleGPU;
+	textureSrvHandleCPU2.ptr += srvDescriptorSize;
+	textureSrvHandleGPU2.ptr += srvDescriptorSize;
+	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
+
+	int selectTextureIndex = 0;
 
 	MSG msg{};
 
@@ -1055,6 +1075,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::DragFloat3("Rotation", &transform.rotate.x, 0.01f);
 			ImGui::DragFloat3("Translation", &transform.translate.x, 0.01f);
 
+			ImGui::Separator();
+
+			const char* textureNames[] = { "UV Checker","MonsterBall" };
+			ImGui::Combo("Select Texture",&selectTextureIndex,textureNames,_countof(textureNames));
+
 			ImGui::End();
 
 			ImGui::Render();
@@ -1065,6 +1090,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// オブジェクトのワールド行列
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+
 
 			// カメラの行列 
 			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
@@ -1141,7 +1167,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// マテリアルCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+
+			// テクスチャのDescriptorTableを設定
+			if (selectTextureIndex == 0)
+			{
+				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+			}
+			else
+			{
+				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU2);
+			}
 
 			/////////////////// 三角形用の描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // VBVを設定
@@ -1228,14 +1263,23 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ImGui::DestroyContext();
 #endif
 	// --- リソースやパイプラインなどの「末端」---
-	if (textureResource) 
+
+	if (textureResource)
 	{
 		textureResource->Release();
 	}
-
 	if (intermediateResource)
 	{
 		intermediateResource->Release();
+	}
+
+	if (textureResource2)
+	{
+		textureResource2->Release();
+	}
+	if (intermediateResource2)
+	{
+		intermediateResource2->Release();
 	}
 
 	if(depthStencilResource)

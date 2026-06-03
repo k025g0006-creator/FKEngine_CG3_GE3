@@ -884,6 +884,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 単位行列を書き込んでおく
 	transformationMatrixData->WVP = MakeIdentity4x4();
 
+	ID3D12Resource* wvpResource2 = CreateBufferResource(device, sizeof(Matrix4x4));
+	TransformationMatrix* transformationMatrixData2 = nullptr;
+	wvpResource2->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixData2));
+	transformationMatrixData2->WVP = MakeIdentity4x4();
+
 	FKEngine::Transform transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
 	// Sprite用のtransformationMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
@@ -989,6 +994,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// Transform変数を作る
 	FKEngine::Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+	FKEngine::Transform transform2{ {1.0f,1.0f,1.0f},{0.0f,0.5f,0.0f},{0.0f,0.0f,-0.5f} };
 
 	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
 
@@ -1091,11 +1097,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::Begin("Material Window");
 			ImGui::ColorEdit4("Color", colorArray);
+
+			ImGui::Separator();
 			ImGui::DragFloat3("Scale", &transform.scale.x, 0.01f);
 			ImGui::DragFloat3("Rotation", &transform.rotate.x, 0.01f);
 			ImGui::DragFloat3("Translation", &transform.translate.x, 0.01f);
 
 			ImGui::Separator();
+
+			ImGui::DragFloat3("Scale 2", &transform2.scale.x, 0.01f);
+			ImGui::DragFloat3("Rotation 2", &transform2.rotate.x, 0.01f);
+			ImGui::DragFloat3("Translation 2", &transform2.translate.x, 0.01f);
 
 			const char* textureNames[] = { "UV Checker","MonsterBall","Stripe" };
 			ImGui::Combo("Select Texture",&selectTextureIndex,textureNames,_countof(textureNames));
@@ -1109,6 +1121,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// オブジェクトのワールド行列
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
+			Matrix4x4 worldMatrix2 = MakeAffineMatrix(transform2.scale, transform2.rotate, transform2.translate);
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
 
 
@@ -1119,14 +1132,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// 投影行列
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+			Matrix4x4 projectionMatrix2 = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
 
 			// 行列の合成
 			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+			Matrix4x4 worldViewProjectionMatrix2 = Multiply(worldMatrix2, Multiply(viewMatrix, projectionMatrix2));
 			Matrix4x4 worldViewProjectionMatrixSprite = Multiply(worldMatrixSprite, Multiply(viewMatrixSprite, projectionMatrixSprite));
 
 			// 定数バッファへ書き込み
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
+			transformationMatrixData2->WVP = worldViewProjectionMatrix2;
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
 
@@ -1207,7 +1223,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // VBVを設定
 			// wvp用のCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->DrawInstanced(3, 1, 0, 0);
+
+
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 3, 0);
 			///////////////////////////////////
 
 			////////////////// Spriteの描画。変更が必要なものだけ変更する
@@ -1330,6 +1350,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	materialResource->Release();
 	vertexResource->Release();
 	wvpResource->Release();
+	wvpResource2->Release();
 
 	vertexResourceSprite->Release();
 	transformationMatrixResourceSprite->Release();

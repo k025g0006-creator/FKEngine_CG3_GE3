@@ -1049,6 +1049,26 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	textureSrvHandleGPU2.ptr += srvDescriptorSize;
 	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
 
+	// 3枚目のテクスチャ
+	DirectX::ScratchImage mipImages3 = LoadTexture("resources/stripe.png");
+	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
+	ID3D12Resource* textureResource3 = CreateTextureResource(device, metadata3);
+	ID3D12Resource* intermediateResource3 = UploadTextureData(textureResource3, mipImages3, device, commandList);
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{};
+	srvDesc3.Format = metadata3.format;
+	srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+	textureSrvHandleCPU3.ptr += srvDescriptorSize * 3;
+	textureSrvHandleGPU3.ptr += srvDescriptorSize * 3;
+
+	device->CreateShaderResourceView(textureResource3, &srvDesc3, textureSrvHandleCPU3);
+
 	int selectTextureIndex = 0;
 
 	MSG msg{};
@@ -1077,7 +1097,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::Separator();
 
-			const char* textureNames[] = { "UV Checker","MonsterBall" };
+			const char* textureNames[] = { "UV Checker","MonsterBall","Stripe" };
 			ImGui::Combo("Select Texture",&selectTextureIndex,textureNames,_countof(textureNames));
 
 			ImGui::End();
@@ -1168,15 +1188,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// マテリアルCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 
+			// 現在選択されているテクスチャのDescriptorHandleを設定
+			D3D12_GPU_DESCRIPTOR_HANDLE currentTextureHandleGPU = textureSrvHandleGPU;
+
 			// テクスチャのDescriptorTableを設定
-			if (selectTextureIndex == 0)
+			if (selectTextureIndex == 1)
 			{
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+				currentTextureHandleGPU = textureSrvHandleGPU2; // 2枚目
 			}
-			else
+			else if (selectTextureIndex == 2)
 			{
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU2);
+				currentTextureHandleGPU = textureSrvHandleGPU3; // 3枚目
 			}
+
+			commandList->SetGraphicsRootDescriptorTable(2, currentTextureHandleGPU);
 
 			/////////////////// 三角形用の描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // VBVを設定
@@ -1280,6 +1305,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	if (intermediateResource2)
 	{
 		intermediateResource2->Release();
+	}
+
+	if (textureResource3)
+	{
+		textureResource3->Release();
+	}
+
+	if (intermediateResource3)
+	{
+		intermediateResource3->Release();
 	}
 
 	if(depthStencilResource)

@@ -1045,8 +1045,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = textureSrvHandleCPU;
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = textureSrvHandleGPU;
-	textureSrvHandleCPU2.ptr += srvDescriptorSize;
-	textureSrvHandleGPU2.ptr += srvDescriptorSize;
+	textureSrvHandleCPU2.ptr += srvDescriptorSize * 2;
+	textureSrvHandleGPU2.ptr += srvDescriptorSize * 2;
 	device->CreateShaderResourceView(textureResource2, &srvDesc2, textureSrvHandleCPU2);
 
 	// 3枚目のテクスチャ
@@ -1194,11 +1194,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// テクスチャのDescriptorTableを設定
 			if (selectTextureIndex == 1)
 			{
-				currentTextureHandleGPU = textureSrvHandleGPU2; // 2枚目
+				currentTextureHandleGPU = textureSrvHandleGPU2; 
 			}
 			else if (selectTextureIndex == 2)
 			{
-				currentTextureHandleGPU = textureSrvHandleGPU3; // 3枚目
+				currentTextureHandleGPU = textureSrvHandleGPU3; 
 			}
 
 			commandList->SetGraphicsRootDescriptorTable(2, currentTextureHandleGPU);

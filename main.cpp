@@ -1080,6 +1080,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	int selectTextureIndex = 0;
 
+	auto startTime = std::chrono::high_resolution_clock::now();
+
 	MSG msg{};
 
 	while (msg.message != WM_QUIT)
@@ -1095,8 +1097,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
-
-			//ImGui::ShowDemoWindow();
 
 			ImGui::Begin("Material Window");
 			ImGui::ColorEdit4("Color", colorArray);
@@ -1119,8 +1119,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::Render();
 #endif
-
-			//transform.rotate.y += 0.01f;
 
 			// オブジェクトのワールド行列
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
@@ -1147,6 +1145,40 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
 			transformationMatrixData2->WVP = worldViewProjectionMatrix2;
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+
+			auto currentTime = std::chrono::high_resolution_clock::now();
+
+			float elapsedTime = std::chrono::duration<float>(currentTime - startTime).count();
+
+			float speed = 1.0f;       
+			float startX = -2.0f;     // 開始位置を画面内
+			float startY = 2.0f;      // 開始位置を画面内
+			float moveRange = 4.0f;   // 移動する範囲を狭くする
+
+			float duration = 2.0f;    // 2秒かけて流す
+			float progress = fmodf(elapsedTime, duration) / duration;
+
+			// 流れ星用のトランスフォームを設定
+			FKEngine::Transform meteorTransform;
+
+			// 左上から右下へ移動
+			meteorTransform.translate.x = startX + (moveRange * progress);
+			meteorTransform.translate.y = startY - (moveRange * progress);
+			meteorTransform.translate.z = 0.0f;
+
+			// 回転
+			meteorTransform.rotate.x = 0.0f;
+			meteorTransform.rotate.y = 0.0f;
+			meteorTransform.rotate.z = -2.5f; 
+
+			// スケール
+			meteorTransform.scale.x = 0.5f * (1.0f - progress); // 横幅
+			meteorTransform.scale.y = 2.0f;                     // 進行方向の長さ
+			meteorTransform.scale.z = 1.0f;
+
+			// 流れ星用の行列
+			Matrix4x4 worldMatrixMeteor = MakeAffineMatrix(meteorTransform.scale, meteorTransform.rotate, meteorTransform.translate);
+			Matrix4x4 worldViewProjectionMatrixMeteor = Multiply(worldMatrixMeteor, Multiply(viewMatrix, projectionMatrix));
 
 
 			// ImGuiでの色変更
@@ -1239,8 +1271,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// transformationMatrixの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 
-			// 描画！（DrawCall/ドローコール）6頂点で1つのインスタンス。
-			//commandList->DrawInstanced(6, 1, 0, 0);
+
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 0, 0);
+
+			transformationMatrixData2->WVP = worldViewProjectionMatrixMeteor;
+
+			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU3);
+
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource2->GetGPUVirtualAddress());
+			commandList->DrawInstanced(3, 1, 0, 0);
+
 			///////////////////////////////////
 
 #ifdef USE_IMGUI

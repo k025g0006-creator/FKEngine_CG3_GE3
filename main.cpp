@@ -848,7 +848,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	///////////////////// 頂点リソース用のヒープの設定
 
-	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * 6);
+	const uint32_t kSubdivision = 32;
+	const uint32_t kVertexCount = kSubdivision * kSubdivision * 6;
+
+	ID3D12Resource* vertexResource = CreateBufferResource(device, sizeof(VertexData) * kVertexCount);
 
 	// Sprite用の頂点リソースを作る
 	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
@@ -910,7 +913,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
 
 	// 使用するリソースのサイズは頂点6つ分のサイズ
-	vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
+	vertexBufferView.SizeInBytes = sizeof(VertexData) * kVertexCount;
 	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
 
 	// 頂点1つ分のサイズ
@@ -925,29 +928,87 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	assert(SUCCEEDED(hr));
 
-	// 左下
-	vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
-	vertexData[0].texcoord = { 0.0f,1.0f };
+	const float pi = 3.14159265f;
+	float latitudeStep = pi / kSubdivision;
+	float longitudeStep = 2.0f * pi / kSubdivision;
 
-	// 上
-	vertexData[1].position = { 0.0f,0.5f,0.0f,1.0f };
-	vertexData[1].texcoord = { 0.5f,0.0f };
+	for (uint32_t latIndex = 0;latIndex < kSubdivision;++latIndex) 
+	{
+		float theta = -pi / 2.0f + static_cast<float>(latIndex) * latitudeStep;
 
-	// 右下
-	vertexData[2].position = { 0.5f,-0.5f,0.0f,1.0f };
-	vertexData[2].texcoord = { 1.0f,1.0f };
+		for (uint32_t lonIndex = 0;lonIndex < kSubdivision;++lonIndex) 
+		{
+			float phi = static_cast<float>(lonIndex) * longitudeStep;
 
-	// 左下2
-	vertexData[3].position = { -0.5f,-0.5f,0.5f,1.0f };
-	vertexData[3].texcoord = { 0.0f,1.0f };
+			uint32_t startIndex = (latIndex * kSubdivision + lonIndex) * 6;
 
-	// 上2
-	vertexData[4].position = { 0.0f,0.0f,0.0f,1.0f };
-	vertexData[4].texcoord = { 0.5f,0.0f };
+			Vector4 a =
+			{ 
+				cosf(theta) * cosf(phi), sinf(theta), cosf(theta) * sinf(phi), 1.0f 
+			};
 
-	// 右下2
-	vertexData[5].position = { 0.5f,-0.5f,-0.5f,1.0f };
-	vertexData[5].texcoord = { 1.0f,1.0f };
+			Vector4 b = 
+			{
+				cosf(theta + latitudeStep) * cosf(phi), sinf(theta + latitudeStep), cosf(theta + latitudeStep) * sinf(phi), 1.0f
+			};
+
+			Vector4 c = 
+			{ 
+				cosf(theta) * cosf(phi + longitudeStep), sinf(theta), cosf(theta) * sinf(phi + longitudeStep), 1.0f
+			};
+
+			Vector4 d =
+			{
+				cosf(theta + latitudeStep) * cosf(phi + longitudeStep), sinf(theta + latitudeStep), cosf(theta + latitudeStep) * sinf(phi + longitudeStep), 1.0f 
+			};
+
+			float fSubdivision = static_cast<float>(kSubdivision);
+			float u1 = static_cast<float>(lonIndex) / fSubdivision;
+			float u2 = static_cast<float>(lonIndex + 1) / fSubdivision;
+			float v1 = 1.0f - static_cast<float>(latIndex) / fSubdivision;
+			float v2 = 1.0f - static_cast<float>(latIndex + 1) / fSubdivision;
+
+			// 三角形1
+			vertexData[startIndex + 0].position = a;
+			vertexData[startIndex + 0].texcoord = { u1, v1 };
+			vertexData[startIndex + 1].position = b;
+			vertexData[startIndex + 1].texcoord = { u1, v2 };
+			vertexData[startIndex + 2].position = d;
+			vertexData[startIndex + 2].texcoord = { u2, v2 };
+
+			// 三角形2
+			vertexData[startIndex + 3].position = a;
+			vertexData[startIndex + 3].texcoord = { u1, v1 };
+			vertexData[startIndex + 4].position = d;
+			vertexData[startIndex + 4].texcoord = { u2, v2 };
+			vertexData[startIndex + 5].position = c;
+			vertexData[startIndex + 5].texcoord = { u2, v1 };
+		}
+	}
+
+	//// 左下
+	//vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
+	//vertexData[0].texcoord = { 0.0f,1.0f };
+
+	//// 上
+	//vertexData[1].position = { 0.0f,0.5f,0.0f,1.0f };
+	//vertexData[1].texcoord = { 0.5f,0.0f };
+
+	//// 右下
+	//vertexData[2].position = { 0.5f,-0.5f,0.0f,1.0f };
+	//vertexData[2].texcoord = { 1.0f,1.0f };
+
+	//// 左下2
+	//vertexData[3].position = { -0.5f,-0.5f,0.5f,1.0f };
+	//vertexData[3].texcoord = { 0.0f,1.0f };
+
+	//// 上2
+	//vertexData[4].position = { 0.0f,0.0f,0.0f,1.0f };
+	//vertexData[4].texcoord = { 0.5f,0.0f };
+
+	//// 右下2
+	//vertexData[5].position = { 0.5f,-0.5f,-0.5f,1.0f };
+	//vertexData[5].texcoord = { 1.0f,1.0f };
 
 	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
 
@@ -990,7 +1051,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// Transform変数を作る
 	FKEngine::Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
-	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-5.0f} };
+	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
 
 
 	// Textureを読んで転送する
@@ -1143,7 +1204,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // VBVを設定
 			// wvp用のCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->DrawInstanced(6, 1, 0, 0);
+			commandList->DrawInstanced(kVertexCount, 1, 0, 0);
 			///////////////////////////////////
 
 			////////////////// Spriteの描画。変更が必要なものだけ変更する

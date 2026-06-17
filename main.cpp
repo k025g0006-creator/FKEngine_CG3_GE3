@@ -1173,13 +1173,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
-
 			// ImGuiでの色変更
 			materialData->x = colorArray[0];
 			materialData->y = colorArray[1];
 			materialData->z = colorArray[2];
 			materialData->w = colorArray[3];
-
 
 			// これから書き込むバックバッファのインデックスを取得
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();

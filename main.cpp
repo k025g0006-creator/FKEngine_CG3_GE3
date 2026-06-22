@@ -901,10 +901,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ID3D12Resource* vertexResourceSprite = CreateBufferResource(device, sizeof(VertexData) * 6);
 
 	// マテリアル用のリソースを作る。今回はcolor1つ分のサイズを用意する
-	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Vector4));
+	ID3D12Resource* materialResource = CreateBufferResource(device, sizeof(Material));
 
 	// マテリアルにデータを書き込む
-	Vector4* materialData = nullptr;
+	Material* materialData = nullptr;
 
 	// Sprite用のマテリアルリソースを作る
 	ID3D12Resource* materialResourceSprite = CreateBufferResource(device, sizeof(Material));
@@ -920,16 +920,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 	// WHITE
-	*materialData = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+	materialData->enableLighting = 1;
 
 	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f }; 
-	materialDataSprite->enableLighting = false;
+	//materialDataSprite->enableLighting = 1;
 
 	// ImGuiでの初期化
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
+	ID3D12Resource* wvpResource = CreateBufferResource(device, sizeof(TransformationMatrix));
 
 	// データを書き込む
 	Matrix4x4* wvpData = nullptr;
@@ -942,6 +943,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// 単位行列を書き込んでおく
 	transformationMatrixData->WVP = MakeIdentity4x4();
+	transformationMatrixData->World = MakeIdentity4x4();
 
 	FKEngine::Transform transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
@@ -983,6 +985,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 書き込むためのアドレスを取得
 	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
 	assert(SUCCEEDED(hr));
+
+	ID3D12Resource* directionalLightResource = nullptr;
+	DirectionalLight* directionalLightData = nullptr;
+
+	directionalLightResource = CreateBufferResource(device, sizeof(DirectionalLight));
+
+	// ⭐ MapしてCPU側のアドレスを取得し、初期データを書き込む
+	directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
+
+	directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };      // 白色の光
+	directionalLightData->direction = { 0.0f, -1.0f, 1.0f };     // 斜め下・手前方向へ進む光
+	directionalLightData->intensity = 1.0f;
+	materialDataSprite->enableLighting = 0;
 
 	const float pi = 3.14159265f;
 	float latitudeStep = pi / kSubdivision;
@@ -1171,6 +1186,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	bool useMonsterBall = true;
 
+
+
 	MSG msg{};
 
 	while (msg.message != WM_QUIT)
@@ -1192,6 +1209,32 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Begin("Material Window");
 			ImGui::ColorEdit4("Color", colorArray);
 			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+			ImGui::Separator();
+			ImGui::Text("Lighting Setting");
+
+			bool enableLighting = (materialData->enableLighting != 0);
+			if (ImGui::Checkbox("Enable Lighting", &enableLighting)) 
+			{
+				materialData->enableLighting = enableLighting ? 1 : 0;
+			}
+
+			// 平行光源の向きの変更
+			float lightDirection[3] = { directionalLightData->direction.x, directionalLightData->direction.y, directionalLightData->direction.z };
+			if (ImGui::SliderFloat3("Light Direction", lightDirection, -1.0f, 1.0f))
+			{
+				Vector3 dir = { lightDirection[0], lightDirection[1], lightDirection[2] };
+
+				if (dir.x != 0.0f || dir.y != 0.0f || dir.z != 0.0f)
+				{
+					directionalLightData->direction = Vector3::Normalize(dir);
+				}
+				else
+				{
+					directionalLightData->direction = { 0.0f, -1.0f, 0.0f }; // オール0の時は下向きにする
+				}
+			}
+			ImGui::SliderFloat("Light Intensity", &directionalLightData->intensity, 0.0f, 3.0f);
+
 			ImGui::End();
 
 			ImGui::Render();
@@ -1218,13 +1261,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// 定数バッファへ書き込み
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
+			transformationMatrixData->World = worldMatrix;
+
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
 			// ImGuiでの色変更
-			materialData->x = colorArray[0];
-			materialData->y = colorArray[1];
-			materialData->z = colorArray[2];
-			materialData->w = colorArray[3];
+			materialData->color.x = colorArray[0];
+			materialData->color.y = colorArray[1];
+			materialData->color.z = colorArray[2];
+			materialData->color.w = colorArray[3];
 
 			// これから書き込むバックバッファのインデックスを取得
 			UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -1276,13 +1321,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetDescriptorHeaps(1, descriptorHeaps);
 			// マテリアルCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
 
 			/////////////////// 三角形用の描画
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // VBVを設定
 			// wvp用のCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
+
+
 			commandList->DrawInstanced(kVertexCount, 1, 0, 0);
+			
 			///////////////////////////////////
 
 			////////////////// Spriteの描画。変更が必要なものだけ変更する
@@ -1296,7 +1345,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
 			// 描画！（DrawCall/ドローコール）6頂点で1つのインスタンス。
-			commandList->DrawInstanced(6, 1, 0, 0);
+			//commandList->DrawInstanced(6, 1, 0, 0);
 			///////////////////////////////////
 
 #ifdef USE_IMGUI
@@ -1400,6 +1449,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	if (materialResourceSprite)
 	{
 		materialResourceSprite->Release();
+	}
+
+	if (directionalLightResource)
+	{
+		directionalLightResource->Release();
 	}
 
 	materialResource->Release();

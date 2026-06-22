@@ -51,13 +51,29 @@ namespace FKEngine
 struct TransformationMatrix 
 {
 	Matrix4x4 WVP;
+	Matrix4x4 World;
 };
 
 struct VertexData 
 {
 	Vector4 position;
-	Vector4 texcoord;
+	Vector2 texcoord;
+	Vector3 normal;
 };
+
+struct Material
+{
+	Vector4 color;
+	int32_t enableLighting;
+};
+
+struct DirectionalLight
+{
+	Vector4 color;     // ライトの色
+	Vector3 direction; // ライトの向き
+	float intensity;   // 輝度
+};
+
 
 void Log(std::ostream& os, const std::string&message)
 {
@@ -725,7 +741,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 	// RootParameterの設定
-	D3D12_ROOT_PARAMETER rootParameters[3] = {};
+	D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
 	// [0] CBV  PixelShaderで利用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -742,6 +758,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
 	rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
+
+	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    // CBVを使う
+	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
+	rootParameters[3].Descriptor.ShaderRegister = 1;                    // レジスタ番号1を使う
 
 	// StaticSamplerの設定
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -781,7 +801,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 	// InputLayout
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
 	inputElementDescs[0].SemanticName = "POSITION";
 	inputElementDescs[0].SemanticIndex = 0;
 	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -790,6 +810,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	inputElementDescs[1].SemanticIndex = 0;
 	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
 	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[2].SemanticName = "NORMAL";
+	inputElementDescs[2].SemanticIndex = 0;
+	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
 	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -881,12 +906,24 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// マテリアルにデータを書き込む
 	Vector4* materialData = nullptr;
 
+	// Sprite用のマテリアルリソースを作る
+	ID3D12Resource* materialResourceSprite = CreateBufferResource(device, sizeof(Material));
+
+	Material* materialDataSprite = nullptr;
+
+	// 書き込むためのアドレスを取得
+	hr = materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
+	assert(SUCCEEDED(hr));
+
 	// 書き込むためのアドレスを取得
 	hr = materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
 	assert(SUCCEEDED(hr));
 
 	// WHITE
 	*materialData = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
+
+	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f }; 
+	materialDataSprite->enableLighting = false;
 
 	// ImGuiでの初期化
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -990,62 +1027,72 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// 三角形1
 			vertexData[startIndex + 0].position = a;
 			vertexData[startIndex + 0].texcoord = { u1, v1 };
+
+			// 法線情報
+			vertexData[startIndex + 0].normal.x = vertexData[startIndex + 0].position.x;
+			vertexData[startIndex + 0].normal.y = vertexData[startIndex + 0].position.y;
+			vertexData[startIndex + 0].normal.z = vertexData[startIndex + 0].position.z;
+
 			vertexData[startIndex + 1].position = b;
 			vertexData[startIndex + 1].texcoord = { u1, v2 };
+			vertexData[startIndex + 1].normal.x = vertexData[startIndex + 1].position.x;
+			vertexData[startIndex + 1].normal.y = vertexData[startIndex + 1].position.y;
+			vertexData[startIndex + 1].normal.z = vertexData[startIndex + 1].position.z;
+
 			vertexData[startIndex + 2].position = d;
 			vertexData[startIndex + 2].texcoord = { u2, v2 };
+			vertexData[startIndex + 2].normal.x = vertexData[startIndex + 2].position.x;
+			vertexData[startIndex + 2].normal.y = vertexData[startIndex + 2].position.y;
+			vertexData[startIndex + 2].normal.z = vertexData[startIndex + 2].position.z;
 
 			// 三角形2
 			vertexData[startIndex + 3].position = a;
 			vertexData[startIndex + 3].texcoord = { u1, v1 };
+			vertexData[startIndex + 3].normal.x = vertexData[startIndex + 3].position.x;
+			vertexData[startIndex + 3].normal.y = vertexData[startIndex + 3].position.y;
+			vertexData[startIndex + 3].normal.z = vertexData[startIndex + 3].position.z;
+
 			vertexData[startIndex + 4].position = d;
 			vertexData[startIndex + 4].texcoord = { u2, v2 };
+			vertexData[startIndex + 4].normal.x = vertexData[startIndex + 4].position.x;
+			vertexData[startIndex + 4].normal.y = vertexData[startIndex + 4].position.y;
+			vertexData[startIndex + 4].normal.z = vertexData[startIndex + 4].position.z;
+
 			vertexData[startIndex + 5].position = c;
 			vertexData[startIndex + 5].texcoord = { u2, v1 };
+			vertexData[startIndex + 5].normal.x = vertexData[startIndex + 5].position.x;
+			vertexData[startIndex + 5].normal.y = vertexData[startIndex + 5].position.y;
+			vertexData[startIndex + 5].normal.z = vertexData[startIndex + 5].position.z;
 		}
 	}
-
-	//// 左下
-	//vertexData[0].position = { -0.5f, -0.5f, 0.0f, 1.0f };
-	//vertexData[0].texcoord = { 0.0f,1.0f };
-
-	//// 上
-	//vertexData[1].position = { 0.0f,0.5f,0.0f,1.0f };
-	//vertexData[1].texcoord = { 0.5f,0.0f };
-
-	//// 右下
-	//vertexData[2].position = { 0.5f,-0.5f,0.0f,1.0f };
-	//vertexData[2].texcoord = { 1.0f,1.0f };
-
-	//// 左下2
-	//vertexData[3].position = { -0.5f,-0.5f,0.5f,1.0f };
-	//vertexData[3].texcoord = { 0.0f,1.0f };
-
-	//// 上2
-	//vertexData[4].position = { 0.0f,0.0f,0.0f,1.0f };
-	//vertexData[4].texcoord = { 0.5f,0.0f };
-
-	//// 右下2
-	//vertexData[5].position = { 0.5f,-0.5f,-0.5f,1.0f };
-	//vertexData[5].texcoord = { 1.0f,1.0f };
 
 	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
 
 	// 1枚目の三角形
 	vertexDataSprite[0].position = { 0.0f,360.0f,0.0f,1.0f }; // 左下
 	vertexDataSprite[0].texcoord = { 0.0f,1.0f };
+	vertexDataSprite[0].normal   = { 0.0f,0.0f,-1.0f };
+
 	vertexDataSprite[1].position = { 0.0f,0.0f,0.0f,1.0f }; // 左上
 	vertexDataSprite[1].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[1].normal   = { 0.0f,0.0f,-1.0f };
+
 	vertexDataSprite[2].position = { 640.0f,360.0f,0.0f,1.0f }; //右下
 	vertexDataSprite[2].texcoord = { 1.0f,1.0f };
+	vertexDataSprite[2].normal   = { 0.0f,0.0f,-1.0f };
 
 	// 2枚目の三角形
 	vertexDataSprite[3].position = { 0.0f,0.0f,0.0f,1.0f }; // 左上
 	vertexDataSprite[3].texcoord = { 0.0f,0.0f };
+	vertexDataSprite[3].normal   = { 0.0f,0.0f,-1.0f };
+
 	vertexDataSprite[4].position = { 640.0f,0.0f,0.0f,1.0f }; // 右上
 	vertexDataSprite[4].texcoord = { 1.0f,0.0f };
+	vertexDataSprite[4].normal   = { 0.0f,0.0f,-1.0f };
+
 	vertexDataSprite[5].position = {640.0f,360.0f,0.0f,1.0f}; // 右下
 	vertexDataSprite[5].texcoord = { 1.0f,1.0f };
+	vertexDataSprite[5].normal   = { 0.0f,0.0f,-1.0f };
 
 	// ビューポート
 	D3D12_VIEWPORT viewport{};
@@ -1241,6 +1288,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			////////////////// Spriteの描画。変更が必要なものだけ変更する
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite); // VBVを設定
 
+			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
+
 			// transformationMatrixの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
 
@@ -1346,6 +1395,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	if (intermediateResource2) 
 	{
 		intermediateResource2->Release(); 
+	}
+
+	if (materialResourceSprite)
+	{
+		materialResourceSprite->Release();
 	}
 
 	materialResource->Release();

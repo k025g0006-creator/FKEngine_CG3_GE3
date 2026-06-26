@@ -65,6 +65,8 @@ struct Material
 {
 	Vector4 color;
 	int32_t enableLighting;
+	float padding[3];
+	Matrix4x4 uvTransform;
 };
 
 struct DirectionalLight
@@ -924,7 +926,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	materialData->enableLighting = 1;
 
 	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f }; 
-	//materialDataSprite->enableLighting = 1;
 
 	// ImGuiでの初期化
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1157,6 +1158,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
 
 
+	FKEngine::Transform uvTransformSprite
+	{
+		{1.0f,1.0f,1.0f},
+		{0.0f,0.0f,0.0f},
+		{0.0f,0.0f,0.0f},
+	};
+
+
 	// Textureを読んで転送する
 	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
@@ -1257,6 +1266,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			ImGui::SliderFloat("Light Intensity", &directionalLightData->intensity, 0.0f, 3.0f);
 
+			ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
+			ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
+			ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+
 			ImGui::End();
 
 			ImGui::Render();
@@ -1286,6 +1299,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->World = worldMatrix;
 
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+
+			// UVTransform用の行列
+			Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
+			uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+			uvTransformMatrix = Multiply(uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
+
+			materialDataSprite->uvTransform = uvTransformMatrix;
+
+			materialData->uvTransform = MakeIdentity4x4();
 
 			// ImGuiでの色変更
 			materialData->color.x = colorArray[0];

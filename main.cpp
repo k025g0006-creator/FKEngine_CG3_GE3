@@ -19,6 +19,9 @@
 #include <dxcapi.h>
 #pragma comment(lib,"dxcompiler.lib")
 
+#include <xaudio2.h>
+#pragma comment(lib,"xaudio2.lib")
+
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
@@ -575,6 +578,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	D3DResourceLeakChecker leakCheck;
 	Microsoft::WRL::ComPtr<ID3D12Device> device;
+
+	ComPtr<IXAudio2> xAudio2;
+	IXAudio2MasteringVoice* masterVoice;
+
 
 	CoInitializeEx(0, COINIT_MULTITHREADED);
 

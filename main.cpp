@@ -34,6 +34,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "externals/DirectXTex/d3dx12.h"
 #include "Matrix4x4.h"
 #include "ResourceObject.h"
+#include "Sound.h"
 
 #include <fstream>
 #include <sstream>
@@ -96,6 +97,41 @@ struct ModelData
 
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
+
+
+//// チャンクヘッダ
+//struct ChunkHeader 
+//{
+//	char id[4];   // チャンク毎のID
+//	int32_t size; // チャンクサイズ
+//};
+//
+//// RIFFヘッダチャンク
+//struct RiffHeader 
+//{
+//	ChunkHeader chunk;   // "RIFF"
+//	char type[4];        // "WAVE"
+//};
+//
+//// FMTチャンク
+//struct FormatChunk
+//{
+//	ChunkHeader chunk;  // "fmt"
+//	WAVEFORMATEX fmt;   // 波形フォーマット
+//};
+//
+//// 音声データ
+//struct SoundData
+//{
+//	// 波形フォーマット
+//	WAVEFORMATEX wfex;
+//
+//	// バッファの先頭アドレス
+//	BYTE* pBuffer;
+//
+//	// バッファのサイズ
+//	unsigned int bufferSize;
+//};
 
 
 void Log(std::ostream& os, const std::string&message)
@@ -581,6 +617,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	ComPtr<IXAudio2> xAudio2;
 	IXAudio2MasteringVoice* masterVoice;
+
+	Sound sound1;
 
 
 	CoInitializeEx(0, COINIT_MULTITHREADED);
@@ -1382,7 +1420,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	bool useMonsterBall = true;
 
+	// xAudioエンジンのインスタンスを生成
+	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 
+	// マスターボイスを生成
+	hr = xAudio2->CreateMasteringVoice(&masterVoice);
+
+	// 音声読み込み
+	sound1.Load("Resources/Alarm01.wav");
+	
+	// 音声再生
+	sound1.Play(xAudio2.Get());
 
 	MSG msg{};
 
@@ -1641,6 +1689,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	CloseWindow(hwnd);
 
 	CoUninitialize();
+
+	// 音声データ解放
+	sound1.Unload();
+
+	// xAudio2解放
+	xAudio2.Reset();
 
 	return 0;
 }

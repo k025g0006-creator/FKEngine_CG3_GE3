@@ -22,6 +22,12 @@
 #include <xaudio2.h>
 #pragma comment(lib,"xaudio2.lib")
 
+#define DIRECTINPUT_VERSION   0x0800  // DirectInputのバージョン指定
+#include <dinput.h>
+
+#pragma comment(lib,"dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
+
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
@@ -98,40 +104,9 @@ struct ModelData
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
 
+BYTE key[256] = {};
 
-//// チャンクヘッダ
-//struct ChunkHeader 
-//{
-//	char id[4];   // チャンク毎のID
-//	int32_t size; // チャンクサイズ
-//};
-//
-//// RIFFヘッダチャンク
-//struct RiffHeader 
-//{
-//	ChunkHeader chunk;   // "RIFF"
-//	char type[4];        // "WAVE"
-//};
-//
-//// FMTチャンク
-//struct FormatChunk
-//{
-//	ChunkHeader chunk;  // "fmt"
-//	WAVEFORMATEX fmt;   // 波形フォーマット
-//};
-//
-//// 音声データ
-//struct SoundData
-//{
-//	// 波形フォーマット
-//	WAVEFORMATEX wfex;
-//
-//	// バッファの先頭アドレス
-//	BYTE* pBuffer;
-//
-//	// バッファのサイズ
-//	unsigned int bufferSize;
-//};
+BYTE keyPre[256] = {};
 
 
 void Log(std::ostream& os, const std::string&message)
@@ -139,6 +114,18 @@ void Log(std::ostream& os, const std::string&message)
 	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
 }
+
+// キーを押した状態か
+bool PushKey(uint8_t keyNumber);
+
+// キーを話した状態か
+bool ReleaseKey(uint8_t keyNumber);
+
+// キーを押した瞬間か
+bool TriggerKey(uint8_t keyNumber);
+
+// キーを話した瞬間か
+bool ReleaseTriggerKey(uint8_t keyNumber);
 
 // string->wstring
 std::wstring ConvertString(const std::string& str) 
@@ -592,6 +579,35 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 
 Microsoft::WRL::ComPtr<ID3D12Resource>
 CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata);
+
+
+// ---------------------------------------------
+// トリガー処理
+// ---------------------------------------------
+
+// キーを押した状態か
+bool PushKey(uint8_t keyNumber)
+{
+	return key[keyNumber] != 0;
+}
+
+// キーを離した状態か
+bool ReleaseKey(uint8_t keyNumber)
+{
+	return key[keyNumber] == 0;
+}
+
+// キーを押した瞬間か
+bool TriggerKey(uint8_t keyNumber)
+{
+	return key[keyNumber] != 0 && keyPre[keyNumber] == 0;
+}
+
+// キーを離した瞬間か
+bool ReleaseTriggerKey(uint8_t keyNumber)
+{
+	return key[keyNumber] == 0 && keyPre[keyNumber] != 0;
+}
 
 
 // Windowsアプリでのエントリーポイント(main関数)
@@ -1383,6 +1399,26 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device.Get(), metadata2);
 	ComPtr<ID3D12Resource> intermediateResource2 = UploadTextureData(textureResource2.Get(), mipImages2, device.Get(), commandList.Get());
 
+
+	// DirectInputの初期化
+	IDirectInput8* directInput = nullptr;
+	hr = DirectInput8Create(wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
+	assert(SUCCEEDED(hr));
+
+	// キーボードデバイスの生成
+	IDirectInputDevice8* keyboard = nullptr;
+	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+	assert(SUCCEEDED(hr));
+
+	// 入力データ形式のセット
+	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);  // 標準形式
+	assert(SUCCEEDED(hr));
+
+	// 排他制御レベルのセット
+	hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	assert(SUCCEEDED(hr));
+
+
 	// DSV用のヒープでディスクリプタの数は1。DSVはShader内で触るものではないので、ShaderVisibleはfalse
 	ComPtr<ID3D12DescriptorHeap> dsvDescriptorHeap = CreateDescriptorHeap(device.Get(), D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
@@ -1443,6 +1479,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 		else
 		{
+			// キーボード情報の取得開始
+			keyboard->Acquire();
+
+			// 全キーの入力状態を取得する
+			keyboard->GetDeviceState(sizeof(key), key);
+
+			if (TriggerKey(DIK_0))
+			{
+				OutputDebugStringA("Hit 0\n"); // 出力ウィンドウに「Hit 0」と表示
+			}
+
 #ifdef USE_IMGUI
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
@@ -1496,6 +1543,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 #endif
 
 			//transform.rotate.y += 0.01f;
+
 
 			// オブジェクトのワールド行列
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);

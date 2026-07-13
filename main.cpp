@@ -22,7 +22,7 @@
 #include <xaudio2.h>
 #pragma comment(lib,"xaudio2.lib")
 
-#define DIRECTINPUT_VERSION   0x0800  // DirectInputのバージョン指定
+#define DIRECTINPUT_VERSION   0x0800  
 #include <dinput.h>
 
 #pragma comment(lib,"dinput8.lib")
@@ -41,12 +41,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "Matrix4x4.h"
 #include "ResourceObject.h"
 #include "Sound.h"
+#include "DebugCamera.h"
 
 #include <fstream>
 #include <sstream>
 
 
-struct Vector4 
+struct Vector4
 {
 	float x, y, z, w;
 };
@@ -61,13 +62,13 @@ namespace FKEngine
 	};
 }
 
-struct TransformationMatrix 
+struct TransformationMatrix
 {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
 };
 
-struct VertexData 
+struct VertexData
 {
 	Vector4 position;
 	Vector2 texcoord;
@@ -82,7 +83,7 @@ struct Material
 	Matrix4x4 uvTransform;
 };
 
-struct MaterialData 
+struct MaterialData
 {
 	std::string textureFilePath;
 };
@@ -95,7 +96,7 @@ struct DirectionalLight
 };
 
 
-struct ModelData 
+struct ModelData
 {
 	std::vector<VertexData> vertices;
 	MaterialData material;
@@ -109,7 +110,7 @@ BYTE key[256] = {};
 BYTE keyPre[256] = {};
 
 
-void Log(std::ostream& os, const std::string&message)
+void Log(std::ostream& os, const std::string& message)
 {
 	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
@@ -128,7 +129,7 @@ bool TriggerKey(uint8_t keyNumber);
 bool ReleaseTriggerKey(uint8_t keyNumber);
 
 // string->wstring
-std::wstring ConvertString(const std::string& str) 
+std::wstring ConvertString(const std::string& str)
 {
 	if (str.empty())
 	{
@@ -136,7 +137,7 @@ std::wstring ConvertString(const std::string& str)
 	}
 
 	auto sizeNeeded = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(&str[0]), static_cast<int>(str.size()), NULL, 0);
-	if (sizeNeeded == 0) 
+	if (sizeNeeded == 0)
 	{
 		return std::wstring();
 	}
@@ -163,7 +164,7 @@ std::string ConvertString(const std::wstring& str)
 	return result;
 }
 
-static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception) 
+static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 {
 	// 時刻を取得して、時刻を名前に入れたファイルを作成、Dumpsディレクタ以下に出力
 	SYSTEMTIME time;
@@ -290,7 +291,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateBufferResource(ID3D12Device* device
 	);
 	assert(SUCCEEDED(hr));
 
-	return resource; 
+	return resource;
 }
 
 Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> CreateDescriptorHeap(
@@ -324,8 +325,8 @@ DirectX::ScratchImage LoadTexture(const std::string& filePath)
 	return mipImages;
 }
 
-Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata) 
- {
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* device, const DirectX::TexMetadata& metadata)
+{
 	// metadataを基にResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
 	resourceDesc.Width = UINT(metadata.width);                              // Textureの幅
@@ -335,7 +336,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* devic
 	resourceDesc.Format = metadata.format;                                  // TextureのFormat
 	resourceDesc.SampleDesc.Count = 1;                                      // サンプリングカウント。1固定
 	resourceDesc.Dimension = D3D12_RESOURCE_DIMENSION(metadata.dimension);  // Textureの次元数。普段使っているのは2次元
-	
+
 	// 利用するHeapの設定
 	D3D12_HEAP_PROPERTIES heapProperties{};
 	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;                         // 細かい設定を行う
@@ -353,15 +354,15 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(ID3D12Device* devic
 		IID_PPV_ARGS(&resource));          // 作成するResourceポインタへのポインタ
 	assert(SUCCEEDED(hr));
 	return resource;
- }
+}
 
-void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages) 
+void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mipImages)
 {
 	// Meta情報を取得
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 
 	// 全MipMapについて
-	for (size_t mipLevel = 0;mipLevel < metadata.mipLevels;++mipLevel) 
+	for (size_t mipLevel = 0;mipLevel < metadata.mipLevels;++mipLevel)
 	{
 		// MipMapLevelを指定して各Imageを取得
 		const DirectX::Image* img = mipImages.GetImage(mipLevel, 0, 0);
@@ -373,7 +374,7 @@ void UploadTextureData(ID3D12Resource* texture, const DirectX::ScratchImage& mip
 			img->pixels,             // 元データアドレス
 			UINT(img->rowPitch),	 // 1ラインサイズ
 			UINT(img->slicePitch));	 // 1枚サイズ
-		assert(SUCCEEDED(hr));		
+		assert(SUCCEEDED(hr));
 	}
 }
 
@@ -400,7 +401,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> UploadTextureData(ID3D12Resource* texture
 	return intermediateResource;
 }
 
-Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height) 
+Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12Device* device, int32_t width, int32_t height)
 {
 	// 生成するResourceの設定
 	D3D12_RESOURCE_DESC resourceDesc{};
@@ -415,7 +416,7 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12D
 
 	// 利用するHeapの設定
 	D3D12_HEAP_PROPERTIES heapProperties{};
-	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT; 
+	heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
 	// 深度値のクリア設定
 	D3D12_CLEAR_VALUE depthClearValue{};
@@ -431,8 +432,8 @@ Microsoft::WRL::ComPtr<ID3D12Resource> CreateDepthStencilTextureResource(ID3D12D
 		D3D12_RESOURCE_STATE_DEPTH_WRITE,           // 初回のResourceState。
 		&depthClearValue,                           // Clear最適地。
 		IID_PPV_ARGS(&resource));                   // 作成するResourceポインタへのポインタ
-		assert(SUCCEEDED(hr));
-		return resource;
+	assert(SUCCEEDED(hr));
+	return resource;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
@@ -475,7 +476,7 @@ MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const st
 			materialData.textureFilePath = directoryPath + "/" + textureFilename;
 		}
 	}
-	 
+
 	// 4. MaterialDataを返す
 	return materialData;
 }
@@ -613,9 +614,9 @@ bool ReleaseTriggerKey(uint8_t keyNumber)
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow)
 {
-	struct D3DResourceLeakChecker 
+	struct D3DResourceLeakChecker
 	{
-		~D3DResourceLeakChecker() 
+		~D3DResourceLeakChecker()
 		{
 			// リソースリークチェック
 			Microsoft::WRL::ComPtr<IDXGIDebug1> debug;
@@ -727,7 +728,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 良い順にアダプターを頼む
 	for (UINT i = 0; dxgiFactory->EnumAdapterByGpuPreference(i,
 		DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&useAdapter)) !=
-		DXGI_ERROR_NOT_FOUND; i++) 
+		DXGI_ERROR_NOT_FOUND; i++)
 	{
 
 		// アダプターの情報を取得する
@@ -760,7 +761,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	{
 		"12.2", "12.1", "12.0"
 	};
-	
+
 	// 高い順に生成できるか試していく
 	for (size_t i = 0; i < _countof(featureLevels); ++i)
 	{
@@ -779,7 +780,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 #ifdef _DEBUG
 	ComPtr<ID3D12InfoQueue> infoQueue = nullptr;
-	if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&infoQueue)))) 
+	if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&infoQueue))))
 	{
 		// ヤバイエラー時に止まる
 		infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
@@ -825,7 +826,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// コマンドアロケータを生成する
 	ComPtr<ID3D12CommandAllocator> commandAllocator = nullptr;
 	hr = device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&commandAllocator));
-	
+
 	// コマンドアロケータの生成が上手くいかなかったので起動できない
 	assert(SUCCEEDED(hr));
 
@@ -945,12 +946,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// [0] CBV  PixelShaderで利用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[0].Descriptor.ShaderRegister = 0; 
+	rootParameters[0].Descriptor.ShaderRegister = 0;
 
 	// [1] CBV  VertexShaderで利用
 	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 0; 
+	rootParameters[1].Descriptor.ShaderRegister = 0;
 
 	// [2] DescriptorTable  PixelShaderで利用
 	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -977,8 +978,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
 	descriptionRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 	descriptionRootSignature.pParameters = rootParameters;
-	descriptionRootSignature.NumParameters = _countof(rootParameters);   
-	descriptionRootSignature.pStaticSamplers = staticSamplers; 
+	descriptionRootSignature.NumParameters = _countof(rootParameters);
+	descriptionRootSignature.pStaticSamplers = staticSamplers;
 	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
 
@@ -988,7 +989,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	hr = D3D12SerializeRootSignature(&descriptionRootSignature,
 		D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, &errorBlob);
-	if(FAILED(hr))
+	if (FAILED(hr))
 	{
 		Log(logStream, reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
 		assert(false);
@@ -996,7 +997,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// バイナリを元に生成
 	ComPtr<ID3D12RootSignature> rootSignature = nullptr;
 	hr = device->CreateRootSignature(0,
-		signatureBlob->GetBufferPointer(),signatureBlob->GetBufferSize(),
+		signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(),
 		IID_PPV_ARGS(&rootSignature));
 	assert(SUCCEEDED(hr));
 
@@ -1087,7 +1088,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ComPtr<ID3D12PipelineState> graphicsPipelineState = nullptr;
 	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc,
 		IID_PPV_ARGS(&graphicsPipelineState));
-		assert(SUCCEEDED(hr));
+	assert(SUCCEEDED(hr));
 
 	////////////////////////////// モデル読み込み ////////////////////////////
 	ModelData modelData = LoadObjFile("Resources", "plane.obj");
@@ -1105,7 +1106,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 頂点リソースにデータを書き込む
 	VertexData* vertexDataModel = nullptr;
 	vertexResourceModel->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataModel));
-	std::memcpy(vertexDataModel, modelData.vertices.data(), sizeof(VertexData)* modelData.vertices.size()); // 頂点データをリソースにコピー
+	std::memcpy(vertexDataModel, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size()); // 頂点データをリソースにコピー
 
 
 	/////////////////////////////////////////////////////////////////////////
@@ -1144,7 +1145,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	materialData->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = 1;
 
-	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f }; 
+	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// ImGuiでの初期化
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1233,7 +1234,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	directionalLightResource = CreateBufferResource(device.Get(), sizeof(DirectionalLight));
 
-	// ⭐ MapしてCPU側のアドレスを取得し、初期データを書き込む
+	// MapしてCPU側のアドレスを取得し、初期データを書き込む
 	directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
 
 	directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };      // 白色の光
@@ -1245,34 +1246,34 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	float latitudeStep = pi / kSubdivision;
 	float longitudeStep = 2.0f * pi / kSubdivision;
 
-	for (uint32_t latIndex = 0;latIndex < kSubdivision;++latIndex) 
+	for (uint32_t latIndex = 0;latIndex < kSubdivision;++latIndex)
 	{
 		float theta = -pi / 2.0f + static_cast<float>(latIndex) * latitudeStep;
 
-		for (uint32_t lonIndex = 0;lonIndex < kSubdivision;++lonIndex) 
+		for (uint32_t lonIndex = 0;lonIndex < kSubdivision;++lonIndex)
 		{
 			float phi = static_cast<float>(lonIndex) * longitudeStep + pi;
 
 			uint32_t startIndex = (latIndex * kSubdivision + lonIndex) * 6;
 
 			Vector4 a =
-			{ 
-				cosf(theta) * cosf(phi), sinf(theta), cosf(theta) * sinf(phi), 1.0f 
+			{
+				cosf(theta) * cosf(phi), sinf(theta), cosf(theta) * sinf(phi), 1.0f
 			};
 
-			Vector4 b = 
+			Vector4 b =
 			{
 				cosf(theta + latitudeStep) * cosf(phi), sinf(theta + latitudeStep), cosf(theta + latitudeStep) * sinf(phi), 1.0f
 			};
 
-			Vector4 c = 
-			{ 
+			Vector4 c =
+			{
 				cosf(theta) * cosf(phi + longitudeStep), sinf(theta), cosf(theta) * sinf(phi + longitudeStep), 1.0f
 			};
 
 			Vector4 d =
 			{
-				cosf(theta + latitudeStep) * cosf(phi + longitudeStep), sinf(theta + latitudeStep), cosf(theta + latitudeStep) * sinf(phi + longitudeStep), 1.0f 
+				cosf(theta + latitudeStep) * cosf(phi + longitudeStep), sinf(theta + latitudeStep), cosf(theta + latitudeStep) * sinf(phi + longitudeStep), 1.0f
 			};
 
 			float fSubdivision = static_cast<float>(kSubdivision);
@@ -1376,6 +1377,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
 
+	// デバッグカメラ
+	DebugCamera debugCamera;
+	debugCamera.Initialize(kClientWidth, kClientHeight);
+	debugCamera.SetTranslation(cameraTransform.translate); // 通常カメラと同じ位置から開始
+
+	// デバッグカメラが有効かどうか
+	bool isDebugCameraActive = false;
+
 
 	FKEngine::Transform uvTransformSprite
 	{
@@ -1389,7 +1398,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	DirectX::ScratchImage mipImages = LoadTexture("resources/uvChecker.png");
 	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource = CreateTextureResource(device.Get(), metadata);
-	
+
 	ComPtr<ID3D12Resource> intermediateResource = UploadTextureData(textureResource.Get(), mipImages, device.Get(), commandList.Get());
 
 	ComPtr<ID3D12Resource> depthStencilResource = CreateDepthStencilTextureResource(device.Get(), kClientWidth, kClientHeight);
@@ -1416,6 +1425,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// 排他制御レベルのセット
 	hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+	assert(SUCCEEDED(hr));
+
+	// マウスデバイスの生成
+	IDirectInputDevice8* mouse = nullptr;
+	hr = directInput->CreateDevice(GUID_SysMouse, &mouse, NULL);
+	assert(SUCCEEDED(hr));
+
+	// 入力データ形式のセット（マウスの標準形式）
+	hr = mouse->SetDataFormat(&c_dfDIMouse);
+	assert(SUCCEEDED(hr));
+
+	// 排他制御レベルのセット
+	hr = mouse->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE);
 	assert(SUCCEEDED(hr));
 
 
@@ -1464,7 +1486,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// 音声読み込み
 	sound1.Load("Resources/Alarm01.wav");
-	
+
 	// 音声再生
 	sound1.Play(xAudio2.Get());
 
@@ -1479,15 +1501,37 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 		else
 		{
+
 			// キーボード情報の取得開始
 			keyboard->Acquire();
 
 			// 全キーの入力状態を取得する
 			keyboard->GetDeviceState(sizeof(key), key);
 
+			// マウス情報の取得開始
+			mouse->Acquire();
+
+			// マウスの入力状態（相対移動量・ボタン）を取得する
+			DIMOUSESTATE mouseState{};
+			mouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouseState);
+
 			if (TriggerKey(DIK_0))
 			{
 				OutputDebugStringA("Hit 0\n"); // 出力ウィンドウに「Hit 0」と表示
+			}
+
+			// デバッグカメラのON/OFF切り替え
+			if (TriggerKey(DIK_F1))
+			{
+				isDebugCameraActive = !isDebugCameraActive;
+			}
+
+			// デバッグカメラの更新処理
+			if (isDebugCameraActive)
+			{
+				// マウス左ボタンが押されているか
+				bool isLeftMouseDown = (mouseState.rgbButtons[0] & 0x80) != 0;
+				debugCamera.Update(key, mouseState.lX, mouseState.lY, isLeftMouseDown);
 			}
 
 #ifdef USE_IMGUI
@@ -1504,7 +1548,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Text("Lighting Setting");
 
 			bool enableLighting = (materialData->enableLighting != 0);
-			if (ImGui::Checkbox("Enable Lighting", &enableLighting)) 
+			if (ImGui::Checkbox("Enable Lighting", &enableLighting))
 			{
 				materialData->enableLighting = enableLighting ? 1 : 0;
 			}
@@ -1537,6 +1581,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::SliderAngle("Model Rotate Y", &transform.rotate.y);
 			ImGui::SliderAngle("Model Rotate Z", &transform.rotate.z);
 
+			ImGui::Separator();
+			ImGui::Text("Debug Camera");
+			ImGui::Text(isDebugCameraActive ? "State : ON (F1 to disable)" : "State : OFF (F1 to enable)");
+			ImGui::Checkbox("Debug Camera Active", &isDebugCameraActive);
+			ImGui::Text("Move : W/A/S/D, Up/Down : E/Q");
+			ImGui::Text("Look : Mouse");
+			{
+				Vector3 debugCamPos = debugCamera.GetTranslation();
+				if (ImGui::DragFloat3("Debug Cam Position", &debugCamPos.x, 0.1f))
+				{
+					debugCamera.SetTranslation(debugCamPos);
+				}
+			}
+
 			ImGui::End();
 
 			ImGui::Render();
@@ -1549,9 +1607,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
 
-			// カメラの行列 
-			Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
-			Matrix4x4 viewMatrix = Inverse(cameraMatrix); // カメラの逆行列がビュー行列
+			// カメラの行列（デバッグカメラが有効な場合はそちらを使用）
+			Matrix4x4 viewMatrix{};
+			if (isDebugCameraActive)
+			{
+				viewMatrix = debugCamera.GetViewMatrix();
+			}
+			else
+			{
+				Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
+				viewMatrix = Inverse(cameraMatrix); // カメラの逆行列がビュー行列
+			}
 			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // スプライトはカメラの影響を受けないので、ビュー行列は単位行列
 
 			// 投影行列
@@ -1643,7 +1709,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			//commandList->DrawInstanced(kVertexCount, 1, 0, 0);
 			commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
-			
+
 			///////////////////////////////////
 
 			////////////////// Spriteの描画。変更が必要なものだけ変更する
@@ -1683,7 +1749,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			assert(SUCCEEDED(hr));
 
 			// GPUにコマンドリストの実行を行わせる
-			ComPtr<ID3D12CommandList> commandLists[] = { commandList.Get()};
+			ComPtr<ID3D12CommandList> commandLists[] = { commandList.Get() };
 			commandQueue->ExecuteCommandLists(1, commandLists->GetAddressOf());
 
 			// GPUとOUに画面の交換を行うよう通知する
@@ -1711,6 +1777,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			assert(SUCCEEDED(hr));
 			hr = commandList->Reset(commandAllocator.Get(), nullptr);
 			assert(SUCCEEDED(hr));
+
+			// 前フレームのキー入力状態を保存
+			memcpy(keyPre, key, sizeof(key));
 		}
 	}
 
@@ -1730,7 +1799,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
 #endif
-	
+
 	CloseHandle(fenceEvent);
 
 

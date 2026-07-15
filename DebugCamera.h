@@ -23,15 +23,8 @@ public:
 
 	void SetTranslation(const Vector3& translation) { translation_ = translation; }
 
-	// カメラ回転角の取得・設定
-	const Vector3& GetRotation() const { return rotation_; }
-
-	void SetRotation(const Vector3& rotation) { rotation_ = rotation; }
 
 private:
-
-	// X,Y,Z軸回りのローカル回転角
-	Vector3 rotation_ = { 0.0f, 0.0f, 0.0f };
 
 	// ローカル座標
 	Vector3 translation_ = { 0.0f, 0.0f, -50.0f };
@@ -42,6 +35,9 @@ private:
 	// 射影行列
 	Matrix4x4 projectionMatrix_{};
 
+	// 累積回転行列
+	Matrix4x4 matRot_ = MakeIdentity4x4();
+
 	// 移動速度
 	float moveSpeed_ = 0.2f;
 
@@ -50,7 +46,4 @@ private:
 
 	// キー入力による回転速度
 	float keyRotateSpeed_ = 0.02f;
-
-	// ピッチ角の制限
-	float pitchLimit_ = 1.5f;
 };

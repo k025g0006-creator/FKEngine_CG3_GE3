@@ -1,12 +1,12 @@
 #include "Matrix4x4.h"
 #include <cmath>
 
-Vector2::Vector2() : x(0.0f), y(0.0f) 
+Vector2::Vector2() : x(0.0f), y(0.0f)
 {
 
 }
 
-Vector2::Vector2(float x, float y) : x(x), y(y) 
+Vector2::Vector2(float x, float y) : x(x), y(y)
 {
 
 }
@@ -212,6 +212,18 @@ Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2)
         }
     }
     return result;
+}
+
+// 積
+Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2)
+{
+    return Multiply(m1, m2);
+}
+
+Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2)
+{
+    m1 = Multiply(m1, m2);
+    return m1;
 }
 
 Matrix4x4 Transpose(const Matrix4x4& m)

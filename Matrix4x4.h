@@ -78,3 +78,7 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip
 
 // 正射影行列
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip);
+
+// 積
+Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2);
+Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2);

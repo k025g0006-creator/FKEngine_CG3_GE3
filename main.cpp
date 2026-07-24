@@ -1577,9 +1577,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Separator();
 			ImGui::Text("Model Transform");
 
+			ImGui::DragFloat3("Model Translate", &transform.translate.x, 0.1f);
 			ImGui::SliderAngle("Model Rotate X", &transform.rotate.x);
 			ImGui::SliderAngle("Model Rotate Y", &transform.rotate.y);
 			ImGui::SliderAngle("Model Rotate Z", &transform.rotate.z);
+			ImGui::DragFloat3("Model Scale", &transform.scale.x, 0.01f);
+
+			ImGui::Separator();
+			ImGui::Text("Sprite Transform");
+
+			ImGui::DragFloat3("Sprite Translate", &transformSprite.translate.x, 1.0f);
+			ImGui::SliderAngle("Sprite Rotate Z", &transformSprite.rotate.z);
+			ImGui::DragFloat3("Sprite Scale", &transformSprite.scale.x, 0.01f);
 
 			ImGui::Separator();
 			ImGui::Text("Debug Camera");
@@ -1726,7 +1735,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// 描画！（DrawCall/ドローコール）6頂点で1つのインスタンス。
 			//commandList->DrawInstanced(6, 1, 0, 0);
-			//commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+			commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 			///////////////////////////////////
 
 #ifdef USE_IMGUI

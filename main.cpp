@@ -46,7 +46,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <fstream>
 #include <sstream>
 
-
 struct Vector4
 {
 	float x, y, z, w;

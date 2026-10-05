@@ -42,6 +42,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "ResourceObject.h"
 #include "Sound.h"
 #include "DebugCamera.h"
+#include "WinApp.h"
 
 #include <fstream>
 #include <sstream>
@@ -104,6 +105,74 @@ struct ModelData
 
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
+
+// ---------------------------------------------
+// BlendMode
+// ---------------------------------------------
+enum BlendMode
+{
+	kBlendModeNone,      // ブレンドなし
+	kBlendModeNormal,    // 通常αブレンド。Src * SrcA + Dest * (1 - SrcA)
+	kBlendModeAdd,       // 加算。Src * SrcA + Dest * 1
+	kBlendModeSubtract,  // 減算。Dest * 1 - Src * SrcA
+	kBlendModeMultiply,  // 乗算。Src * 0 + Dest * Src
+	kBlendModeScreen,    // スクリーン。Src * (1 - Dest) + Dest * 1
+	kCountOfBlendMode,   // 利用してはいけない
+};
+
+D3D12_BLEND_DESC CreateBlendDesc(BlendMode mode)
+{
+	D3D12_BLEND_DESC desc{};
+	auto& rt = desc.RenderTarget[0];
+
+	// 全ての色要素を書き込む
+	rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	// α値のブレンド設定は全モード共通
+	rt.SrcBlendAlpha = D3D12_BLEND_ONE;
+	rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	rt.DestBlendAlpha = D3D12_BLEND_ZERO;
+
+	if (mode == kBlendModeNone)
+	{
+		rt.BlendEnable = FALSE;
+		return desc;
+	}
+
+	rt.BlendEnable = TRUE;
+
+	switch (mode)
+	{
+	case kBlendModeNormal:
+		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		rt.BlendOp = D3D12_BLEND_OP_ADD;
+		rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+		break;
+	case kBlendModeAdd:
+		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		rt.BlendOp = D3D12_BLEND_OP_ADD;
+		rt.DestBlend = D3D12_BLEND_ONE;
+		break;
+	case kBlendModeSubtract:
+		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+		rt.BlendOp = D3D12_BLEND_OP_REV_SUBTRACT;
+		rt.DestBlend = D3D12_BLEND_ONE;
+		break;
+	case kBlendModeMultiply:
+		rt.SrcBlend = D3D12_BLEND_ZERO;
+		rt.BlendOp = D3D12_BLEND_OP_ADD;
+		rt.DestBlend = D3D12_BLEND_SRC_COLOR;
+		break;
+	case kBlendModeScreen:
+		rt.SrcBlend = D3D12_BLEND_INV_DEST_COLOR;
+		rt.BlendOp = D3D12_BLEND_OP_ADD;
+		rt.DestBlend = D3D12_BLEND_ONE;
+		break;
+	default:
+		break;
+	}
+	return desc;
+}
 
 BYTE key[256] = {};
 
@@ -189,25 +258,6 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 
 	// 他に関連づけられているSEH例外ハンドラがあれば実行。通常はプロセスを終了する
 	return EXCEPTION_EXECUTE_HANDLER;
-}
-
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
-#ifdef USE_IMGUI
-	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
-	{
-		return true;
-	}
-#endif
-
-	switch (msg)
-	{
-	case WM_DESTROY:
-		PostQuitMessage(0);
-		return 0;
-	}
-
-	return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
 Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
@@ -677,39 +727,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// ファイルを作って書き込み準備
 	std::ofstream logStream(logFilePath);
 
-	WNDCLASS wc{};
+	// ウィンドウの生成
+	WinApp* winApp = new WinApp();
+	winApp->Initialize();
+	HWND hwnd = winApp->GetHwnd();
 
-	wc.lpfnWndProc = WindowProc;
-
-	wc.lpszClassName = L"CG02WindowClass";
-
-	wc.hInstance = GetModuleHandle(nullptr);
-
-	wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-
-	RegisterClass(&wc);
-
-	const int32_t kClientWidth = 1280;
-	const int32_t kClientHeight = 720;
-
-	RECT wrc = { 0,0,kClientWidth,kClientHeight };
-
-	AdjustWindowRect(&wrc, WS_OVERLAPPEDWINDOW, false);
-
-	HWND hwnd = CreateWindow(
-		wc.lpszClassName,
-		L"CG2-01",
-		WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT,
-		CW_USEDEFAULT,
-		wrc.right - wrc.left,
-		wrc.bottom - wrc.top,
-		nullptr,
-		nullptr,
-		wc.hInstance,
-		nullptr);
-
-	ShowWindow(hwnd, nCmdShow);
+	const int32_t kClientWidth = WinApp::kClientWidth;
+	const int32_t kClientHeight = WinApp::kClientHeight;
 
 	Log(logStream, std::format("Application Started. Window Size: {}x{}", kClientWidth, kClientHeight));
 
@@ -1020,13 +1044,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	inputLayoutDesc.pInputElementDescs = inputElementDescs;
 	inputLayoutDesc.NumElements = _countof(inputElementDescs);
 
-	// BlendStateの設定
-	D3D12_BLEND_DESC blendDesc{};
-
-	// 全ての色要素を書き込む
-	blendDesc.RenderTarget[0].RenderTargetWriteMask =
-		D3D12_COLOR_WRITE_ENABLE_ALL;
-
 	// RasterizerStateの設定
 	D3D12_RASTERIZER_DESC rasterizerDesc{};
 
@@ -1065,7 +1082,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	{ vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() }; // VertexShader
 	graphicsPipelineStateDesc.PS =
 	{ pixelShaderBlob->GetBufferPointer(),pixelShaderBlob->GetBufferSize() }; // PixelShader
-	graphicsPipelineStateDesc.BlendState = blendDesc;  // BlendState
 	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;  // RasterizerState
 
 	// DepthStencilStateの設定
@@ -1085,10 +1101,92 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
 
 	// 実際に生成
-	ComPtr<ID3D12PipelineState> graphicsPipelineState = nullptr;
-	hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc,
-		IID_PPV_ARGS(&graphicsPipelineState));
+	// BlendModeごとにPSOを生成する（BlendModeを変える = PSOを変える）
+	ComPtr<ID3D12PipelineState> graphicsPipelineStates[kCountOfBlendMode];
+	for (int i = 0; i < kCountOfBlendMode; ++i)
+	{
+		graphicsPipelineStateDesc.BlendState = CreateBlendDesc(static_cast<BlendMode>(i));
+		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc,
+			IID_PPV_ARGS(&graphicsPipelineStates[i]));
+		assert(SUCCEEDED(hr));
+	}
+
+	// 現在のBlendMode
+	int currentBlendMode = kBlendModeNormal;
+
+	////////////////////////////// Particle用 ////////////////////////////
+	// Instancing用のStructuredBuffer(SRV)をVertexShaderのt0で使うためのDescriptorRange
+	D3D12_DESCRIPTOR_RANGE descriptorRangeForInstancing[1] = {};
+	descriptorRangeForInstancing[0].BaseShaderRegister = 0;   // 0から始まる
+	descriptorRangeForInstancing[0].NumDescriptors = 1;       // 数は1つ
+	descriptorRangeForInstancing[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV; // SRVを使う
+	descriptorRangeForInstancing[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+	// Particle用のRootParameter（Object3d用とは別に作って管理する）
+	D3D12_ROOT_PARAMETER particleRootParameters[3] = {};
+
+	// [0] Material CBV  PixelShaderで利用
+	particleRootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	particleRootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	particleRootParameters[0].Descriptor.ShaderRegister = 0;
+
+	// [1] Instancing用StructuredBuffer  DescriptorTable  VertexShaderで利用
+	particleRootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	particleRootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+	particleRootParameters[1].DescriptorTable.pDescriptorRanges = descriptorRangeForInstancing;
+	particleRootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(descriptorRangeForInstancing);
+
+	// [2] Texture  DescriptorTable  PixelShaderで利用
+	particleRootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	particleRootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	particleRootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
+	particleRootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
+
+	D3D12_ROOT_SIGNATURE_DESC particleRootSignatureDesc{};
+	particleRootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	particleRootSignatureDesc.pParameters = particleRootParameters;
+	particleRootSignatureDesc.NumParameters = _countof(particleRootParameters);
+	particleRootSignatureDesc.pStaticSamplers = staticSamplers;
+	particleRootSignatureDesc.NumStaticSamplers = _countof(staticSamplers);
+
+	Microsoft::WRL::ComPtr<ID3DBlob> particleSignatureBlob = nullptr;
+	Microsoft::WRL::ComPtr<ID3DBlob> particleErrorBlob = nullptr;
+	hr = D3D12SerializeRootSignature(&particleRootSignatureDesc,
+		D3D_ROOT_SIGNATURE_VERSION_1, &particleSignatureBlob, &particleErrorBlob);
+	if (FAILED(hr))
+	{
+		Log(logStream, reinterpret_cast<char*>(particleErrorBlob->GetBufferPointer()));
+		assert(false);
+	}
+	ComPtr<ID3D12RootSignature> particleRootSignature = nullptr;
+	hr = device->CreateRootSignature(0,
+		particleSignatureBlob->GetBufferPointer(), particleSignatureBlob->GetBufferSize(),
+		IID_PPV_ARGS(&particleRootSignature));
 	assert(SUCCEEDED(hr));
+
+	// Particle用のShaderをコンパイルする
+	Microsoft::WRL::ComPtr<IDxcBlob> particleVertexShaderBlob = CompileShader(L"Particle.VS.hlsl",
+		L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+	assert(particleVertexShaderBlob != nullptr);
+
+	Microsoft::WRL::ComPtr<IDxcBlob> particlePixelShaderBlob = CompileShader(L"Particle.PS.hlsl",
+		L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+	assert(particlePixelShaderBlob != nullptr);
+
+	// Particle用のPSO（Object3d用の設定をコピーして、RootSignatureとShaderだけ差し替える）
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineStateDesc = graphicsPipelineStateDesc;
+	particlePipelineStateDesc.pRootSignature = particleRootSignature.Get();
+	particlePipelineStateDesc.VS = { particleVertexShaderBlob->GetBufferPointer(), particleVertexShaderBlob->GetBufferSize() };
+	particlePipelineStateDesc.PS = { particlePixelShaderBlob->GetBufferPointer(), particlePixelShaderBlob->GetBufferSize() };
+
+	ComPtr<ID3D12PipelineState> particlePipelineStates[kCountOfBlendMode];
+	for (int i = 0; i < kCountOfBlendMode; ++i)
+	{
+		particlePipelineStateDesc.BlendState = CreateBlendDesc(static_cast<BlendMode>(i));
+		hr = device->CreateGraphicsPipelineState(&particlePipelineStateDesc,
+			IID_PPV_ARGS(&particlePipelineStates[i]));
+		assert(SUCCEEDED(hr));
+	}
 
 	////////////////////////////// モデル読み込み ////////////////////////////
 	ModelData modelData = LoadObjFile("Resources", "plane.obj");
@@ -1411,7 +1509,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// DirectInputの初期化
 	IDirectInput8* directInput = nullptr;
-	hr = DirectInput8Create(wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
+	hr = DirectInput8Create(winApp->GetHInstance(), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
 	assert(SUCCEEDED(hr));
 
 	// キーボードデバイスの生成
@@ -1476,6 +1574,51 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
 	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 
+	////////////////////////////// Instancing ////////////////////////////
+	const uint32_t kNumInstance = 10; // インスタンス数
+
+	// Instancing用のTransformationMatrixリソースを作る
+	Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
+		CreateBufferResource(device.Get(), sizeof(TransformationMatrix) * kNumInstance);
+
+	// 書き込むためのアドレスを取得
+	TransformationMatrix* instancingData = nullptr;
+	instancingResource->Map(0, nullptr, reinterpret_cast<void**>(&instancingData));
+
+	// 単位行列を書き込んでおく
+	for (uint32_t index = 0; index < kNumInstance; ++index)
+	{
+		instancingData[index].WVP = MakeIdentity4x4();
+		instancingData[index].World = MakeIdentity4x4();
+	}
+
+	// StructuredBuffer用のSRVを作る
+	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
+	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
+	instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+	instancingSrvDesc.Buffer.FirstElement = 0;
+	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
+	instancingSrvDesc.Buffer.NumElements = kNumInstance;
+	instancingSrvDesc.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+
+	// Heapの3番目にInstancing用のSRVを作成する（0:ImGui 1,2:Texture）
+	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
+
+	// Instancing用に最大数分のTransformを用意し、位置が少しずつずれるように初期化する
+	FKEngine::Transform transforms[kNumInstance];
+	for (uint32_t index = 0; index < kNumInstance; ++index)
+	{
+		transforms[index].scale = { 1.0f, 1.0f, 1.0f };
+		transforms[index].rotate = { 0.0f, 0.0f, 0.0f };
+		transforms[index].translate = { index * 0.1f, index * 0.1f, index * 0.1f };
+	}
+
+	// trueでParticle用のPipeline(Instancing描画)、falseで従来のObject3d用Pipelineで描画する
+	bool useInstancing = true;
+
 	bool useMonsterBall = true;
 
 	// xAudioエンジンのインスタンスを生成
@@ -1490,14 +1633,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 音声再生
 	sound1.Play(xAudio2.Get());
 
-	MSG msg{};
-
-	while (msg.message != WM_QUIT)
+	while (true)
 	{
-		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+		// ウィンドウのメッセージ処理。終了メッセージが来たらループを抜ける
+		if (winApp->ProcessMessage())
 		{
-			TranslateMessage(&msg);
-			DispatchMessage(&msg);
+			break;
 		}
 		else
 		{
@@ -1543,7 +1684,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::Begin("Material Window");
 			ImGui::ColorEdit4("Color", colorArray);
+			const char* blendModeNames[] = { "None", "Normal", "Add", "Subtract", "Multiply", "Screen" };
+			ImGui::Combo("BlendMode", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
 			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+			ImGui::Checkbox("Use Instancing (Particle)", &useInstancing);
 			ImGui::Separator();
 			ImGui::Text("Lighting Setting");
 
@@ -1632,6 +1776,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
 			transformationMatrixData->World = worldMatrix;
 
+			// Instancing用のTransformationMatrixを更新する
+			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+			for (uint32_t index = 0; index < kNumInstance; ++index)
+			{
+				Matrix4x4 instanceWorldMatrix =
+					MakeAffineMatrix(transforms[index].scale, transforms[index].rotate, transforms[index].translate);
+				Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
+				instancingData[index].WVP = instanceWVPMatrix;
+				instancingData[index].World = instanceWorldMatrix;
+			}
+
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
 			// UVTransform用の行列
@@ -1689,7 +1844,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// RootSignatureを設定。PSOに設定しているけど別途設定が必要
 			commandList->SetGraphicsRootSignature(rootSignature.Get());
-			commandList->SetPipelineState(graphicsPipelineState.Get());     // PSOを設定
+			commandList->SetPipelineState(graphicsPipelineStates[currentBlendMode].Get());     // PSOを設定
 			// 形状を設定。PSOに設定しているものとはまた別。同じものを設定すると考えておけばよい
 			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -1708,7 +1863,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel); // モデルのVBVを設定
 
 			//commandList->DrawInstanced(kVertexCount, 1, 0, 0);
-			commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
+			if (!useInstancing)
+			{
+				commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
+			}
 
 			///////////////////////////////////
 
@@ -1727,6 +1885,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// 描画！（DrawCall/ドローコール）6頂点で1つのインスタンス。
 			//commandList->DrawInstanced(6, 1, 0, 0);
 			//commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+			///////////////////////////////////
+
+			////////////////// Particle(Instancing)の描画
+			// RootSignatureが変わるので、必要なものは全て設定し直す
+			if (useInstancing)
+			{
+				assert(kNumInstance <= 10); // 確保したResourceの数を超えないようにする
+
+				commandList->SetGraphicsRootSignature(particleRootSignature.Get());
+				commandList->SetPipelineState(particlePipelineStates[currentBlendMode].Get());
+				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+				// Instancing用のStructuredBufferのSRVを設定する
+				commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandleGPU);
+				commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
+
+				// kNumInstance個だけInstance描画を行う
+				commandList->DrawInstanced(UINT(modelData.vertices.size()), kNumInstance, 0, 0);
+			}
 			///////////////////////////////////
 
 #ifdef USE_IMGUI
@@ -1803,7 +1983,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	CloseHandle(fenceEvent);
 
 
-	CloseWindow(hwnd);
+	// ウィンドウの終了処理
+	winApp->Finalize();
+	delete winApp;
 
 	CoUninitialize();
 

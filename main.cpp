@@ -47,6 +47,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <fstream>
 #include <sstream>
 
+#include <random>
+
 
 struct Vector4
 {
@@ -55,7 +57,7 @@ struct Vector4
 
 namespace FKEngine
 {
-	struct Transform
+	struct Particle
 	{
 		Vector3 scale;
 		Vector3 rotate;
@@ -67,6 +69,14 @@ struct TransformationMatrix
 {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
+};
+
+// Instancing用（StructuredBufferに入れる）。HLSL側のParticleForGPUと並びを合わせる
+struct ParticleForGPU
+{
+	Matrix4x4 WVP;
+	Matrix4x4 World;
+	Vector4 color;
 };
 
 struct VertexData
@@ -101,6 +111,22 @@ struct ModelData
 {
 	std::vector<VertexData> vertices;
 	MaterialData material;
+};
+
+struct Particle
+{
+	FKEngine::Particle transform;
+	Vector3 velocity;
+	Vector4 color;
+	float lifeTime;
+	float currentTime;
+};
+
+struct ParticleGPU
+{
+	Matrix4x4 WVP;
+	Matrix4x4 World;
+	Vector4 color;
 };
 
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
@@ -631,6 +657,26 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 Microsoft::WRL::ComPtr<ID3D12Resource>
 CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata);
 
+std::random_device seedGenerator;
+std::mt19937 randomEngine(seedGenerator());
+
+
+Particle MakeNewParticle(std::mt19937& randomEngine)
+{
+	std::uniform_real_distribution<float> distribution(-1.0f, 1.0f);
+	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
+	std::uniform_real_distribution<float> distTime(1.0f, 3.0f);
+
+	Particle particle;
+	particle.transform.scale = { 1.0f,1.0f,1.0f };
+	particle.transform.rotate = { 0.0f,0.0f,0.0f };
+	particle.transform.translate = { distribution(randomEngine),distribution(randomEngine),distribution(randomEngine) };
+	particle.velocity = { distribution(randomEngine),distribution(randomEngine),distribution(randomEngine) };
+	particle.color = { distColor(randomEngine),distColor(randomEngine),distColor(randomEngine),1.0f };
+	particle.lifeTime = distTime(randomEngine);
+	particle.currentTime = 0.0f;
+	return particle;
+}
 
 // ---------------------------------------------
 // トリガー処理
@@ -1112,7 +1158,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	}
 
 	// 現在のBlendMode
-	int currentBlendMode = kBlendModeNormal;
+	int currentBlendMode = kBlendModeAdd; // Particleは加算ブレンドで描画する
 
 	////////////////////////////// Particle用 ////////////////////////////
 	// Instancing用のStructuredBuffer(SRV)をVertexShaderのt0で使うためのDescriptorRange
@@ -1176,6 +1222,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// Particle用のPSO（Object3d用の設定をコピーして、RootSignatureとShaderだけ差し替える）
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineStateDesc = graphicsPipelineStateDesc;
 	particlePipelineStateDesc.pRootSignature = particleRootSignature.Get();
+	// Particleは深度を書き込まない（DepthTestはそのまま行うので、不透明なObjectとの前後関係は保たれる）
+	particlePipelineStateDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 	particlePipelineStateDesc.VS = { particleVertexShaderBlob->GetBufferPointer(), particleVertexShaderBlob->GetBufferSize() };
 	particlePipelineStateDesc.PS = { particlePixelShaderBlob->GetBufferPointer(), particlePixelShaderBlob->GetBufferSize() };
 
@@ -1264,7 +1312,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	transformationMatrixData->WVP = MakeIdentity4x4();
 	transformationMatrixData->World = MakeIdentity4x4();
 
-	FKEngine::Transform transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+	FKEngine::Particle transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
 	// Sprite用のtransformationMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
 	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = CreateBufferResource(device.Get(), sizeof(Matrix4x4) * 2);
@@ -1471,9 +1519,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	scissorRect.bottom = kClientHeight;
 
 	// Transform変数を作る
-	FKEngine::Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
-	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
+	FKEngine::Particle cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
 
 	// デバッグカメラ
 	DebugCamera debugCamera;
@@ -1484,7 +1532,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	bool isDebugCameraActive = false;
 
 
-	FKEngine::Transform uvTransformSprite
+	FKEngine::Particle uvTransformSprite
 	{
 		{1.0f,1.0f,1.0f},
 		{0.0f,0.0f,0.0f},
@@ -1505,6 +1553,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource2 = CreateTextureResource(device.Get(), metadata2);
 	ComPtr<ID3D12Resource> intermediateResource2 = UploadTextureData(textureResource2.Get(), mipImages2, device.Get(), commandList.Get());
+
+	// Particle用のTexture(circle.png)
+	DirectX::ScratchImage mipImages3 = LoadTexture("resources/circle.png");
+	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
+	ComPtr<ID3D12Resource> textureResource3 = CreateTextureResource(device.Get(), metadata3);
+	ComPtr<ID3D12Resource> intermediateResource3 = UploadTextureData(textureResource3.Get(), mipImages3, device.Get(), commandList.Get());
 
 
 	// DirectInputの初期化
@@ -1562,6 +1616,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
 
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{};
+	srvDesc3.Format = metadata3.format;
+	srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
+
 	// SRVを作成するDescriptorHeapの場所を決める
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
@@ -1569,27 +1629,33 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
 
+	// Heapの4番目にParticle用のcircle.pngのSRVを作成する（0:ImGui 1,2:Texture 3:Instancing 4:circle）
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
+
 
 	// SRVの生成
 	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
 	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
+	device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
 
 	////////////////////////////// Instancing ////////////////////////////
-	const uint32_t kNumInstance = 10; // インスタンス数
+	const uint32_t kNumMaxInstance = 10; // 最大インスタンス数
 
 	// Instancing用のTransformationMatrixリソースを作る
 	Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
-		CreateBufferResource(device.Get(), sizeof(TransformationMatrix) * kNumInstance);
+		CreateBufferResource(device.Get(), sizeof(ParticleForGPU) * kNumMaxInstance);
 
 	// 書き込むためのアドレスを取得
-	TransformationMatrix* instancingData = nullptr;
+	ParticleForGPU* instancingData = nullptr;
 	instancingResource->Map(0, nullptr, reinterpret_cast<void**>(&instancingData));
 
 	// 単位行列を書き込んでおく
-	for (uint32_t index = 0; index < kNumInstance; ++index)
+	for (uint32_t index = 0; index < kNumMaxInstance; ++index)
 	{
 		instancingData[index].WVP = MakeIdentity4x4();
 		instancingData[index].World = MakeIdentity4x4();
+		instancingData[index].color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	}
 
 	// StructuredBuffer用のSRVを作る
@@ -1599,27 +1665,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
 	instancingSrvDesc.Buffer.FirstElement = 0;
 	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	instancingSrvDesc.Buffer.NumElements = kNumInstance;
-	instancingSrvDesc.Buffer.StructureByteStride = sizeof(TransformationMatrix);
+	instancingSrvDesc.Buffer.NumElements = kNumMaxInstance;
+	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
 	// Heapの3番目にInstancing用のSRVを作成する（0:ImGui 1,2:Texture）
 	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
-	// Instancing用に最大数分のTransformを用意し、位置が少しずつずれるように初期化する
-	FKEngine::Transform transforms[kNumInstance];
-	for (uint32_t index = 0; index < kNumInstance; ++index)
+	// Instancing用に最大数分のParticleを用意し、位置が少しずつずれるように初期化する
+	Particle particles[kNumMaxInstance];
+	for (uint32_t index = 0; index < kNumMaxInstance; ++index)
 	{
-		transforms[index].scale = { 1.0f, 1.0f, 1.0f };
-		transforms[index].rotate = { 0.0f, 0.0f, 0.0f };
-		transforms[index].translate = { index * 0.1f, index * 0.1f, index * 0.1f };
+		particles[index] = MakeNewParticle(randomEngine);
 	}
+
+	// Δtを定義。とりあえず60fps固定
+	const float kDeltaTime = 1.0f / 60.0f;
 
 	// trueでParticle用のPipeline(Instancing描画)、falseで従来のObject3d用Pipelineで描画する
 	bool useInstancing = true;
 
-	bool useMonsterBall = true;
+	bool useMonsterBall = false; // falseでuvChecker.pngを貼る
 
 	// xAudioエンジンのインスタンスを生成
 	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
@@ -1747,6 +1814,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			//transform.rotate.y += 0.01f;
 
 
+
 			// オブジェクトのワールド行列
 			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
@@ -1778,13 +1846,30 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// Instancing用のTransformationMatrixを更新する
 			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
-			for (uint32_t index = 0; index < kNumInstance; ++index)
+			uint32_t numInstance = 0; // 描画すべきインスタンス数
+			for (uint32_t index = 0; index < kNumMaxInstance; ++index)
 			{
-				Matrix4x4 instanceWorldMatrix =
-					MakeAffineMatrix(transforms[index].scale, transforms[index].rotate, transforms[index].translate);
+				// 生存期間を過ぎていたら更新せず描画対象にしない
+				if (particles[index].lifeTime <= particles[index].currentTime)
+				{
+					continue;
+				}
+
+				// 速度を反映して移動させる
+				particles[index].transform.translate.x += particles[index].velocity.x * kDeltaTime;
+				particles[index].transform.translate.y += particles[index].velocity.y * kDeltaTime;
+				particles[index].transform.translate.z += particles[index].velocity.z * kDeltaTime;
+				particles[index].currentTime += kDeltaTime; // 経過時間を足す
+
+				Matrix4x4 instanceWorldMatrix = MakeAffineMatrix(
+					particles[index].transform.scale,
+					particles[index].transform.rotate,
+					particles[index].transform.translate);
 				Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
-				instancingData[index].WVP = instanceWVPMatrix;
-				instancingData[index].World = instanceWorldMatrix;
+				instancingData[numInstance].WVP = instanceWVPMatrix;
+				instancingData[numInstance].World = instanceWorldMatrix;
+				instancingData[numInstance].color = particles[index].color;
+				++numInstance; // 生きているParticleの数を1つカウントする
 			}
 
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
@@ -1891,7 +1976,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// RootSignatureが変わるので、必要なものは全て設定し直す
 			if (useInstancing)
 			{
-				assert(kNumInstance <= 10); // 確保したResourceの数を超えないようにする
+				assert(kNumMaxInstance <= 10); // 確保したResourceの数を超えないようにする
 
 				commandList->SetGraphicsRootSignature(particleRootSignature.Get());
 				commandList->SetPipelineState(particlePipelineStates[currentBlendMode].Get());
@@ -1900,12 +1985,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 				// Instancing用のStructuredBufferのSRVを設定する
 				commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandleGPU);
-				commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU3); // circle.png
 
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
 
-				// kNumInstance個だけInstance描画を行う
-				commandList->DrawInstanced(UINT(modelData.vertices.size()), kNumInstance, 0, 0);
+				// 生きているParticleの数(numInstance)だけInstance描画を行う
+				if (numInstance > 0)
+				{
+					commandList->DrawInstanced(UINT(modelData.vertices.size()), numInstance, 0, 0);
+				}
 			}
 			///////////////////////////////////
 

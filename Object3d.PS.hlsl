@@ -40,11 +40,17 @@ PixelShaderOutput main(VertexShaderOutput input)
         float NdoL = dot(normalize(input.normal), -gDirectionalLight.direction);
         float cos = pow(NdoL * 0.5f + 0.5f, 2.0f);
         cos = max(cos, 0.2f); // 最低でも0.2の明るさを保証する（簡易アンビエント）
-        output.color = gMaterial.color * textureColor * gDirectionalLight.color * cos * gDirectionalLight.intensity;
+        output.color.rgb = gMaterial.color.rgb * textureColor.rgb * gDirectionalLight.color.rgb * cos * gDirectionalLight.intensity;
+        output.color.a = gMaterial.color.a * textureColor.a;
     }
     else
     {
         output.color = gMaterial.color * textureColor;
+    }
+    
+    if (output.color.a == 0.0f)
+    {
+        discard;
     }
     return output;
 }

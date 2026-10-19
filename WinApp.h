@@ -33,4 +33,5 @@ private:
 
 	// ウィンドウクラス
 	WNDCLASS wc_{};
+	bool timerPeriodRaised_ = false;
 };

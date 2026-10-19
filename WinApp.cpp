@@ -1,5 +1,9 @@
 #include "WinApp.h"
 
+#include <mmsystem.h>
+
+#pragma comment(lib, "winmm.lib")
+
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
@@ -26,6 +30,9 @@ LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
 void WinApp::Initialize()
 {
+	// FPS待機のsleep精度を上げるため、タイマー分解能を1msにする
+	timerPeriodRaised_ = timeBeginPeriod(1) == TIMERR_NOERROR;
+
 	wc_.lpfnWndProc = WindowProc;
 	wc_.lpszClassName = L"CG02WindowClass";
 	wc_.hInstance = GetModuleHandle(nullptr);
@@ -54,6 +61,11 @@ void WinApp::Initialize()
 
 void WinApp::Finalize()
 {
+	if (timerPeriodRaised_)
+	{
+		timeEndPeriod(1);
+		timerPeriodRaised_ = false;
+	}
 	CloseWindow(hwnd_);
 	UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 }

@@ -17,7 +17,6 @@ public:
 	bool ReleaseKey(uint8_t keyNumber) const;
 	bool TriggerKey(uint8_t keyNumber) const;
 	bool ReleaseTriggerKey(uint8_t keyNumber) const;
-	const BYTE* GetKeys() const { return keys_; }
 private:
 	IDirectInputDevice8* keyboard_ = nullptr;
 	BYTE keys_[256]{};

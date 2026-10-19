@@ -48,6 +48,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <sstream>
 
 #include <random>
+#include <numbers>
+#include <list>
 
 
 struct Vector4
@@ -69,6 +71,7 @@ struct TransformationMatrix
 {
 	Matrix4x4 WVP;
 	Matrix4x4 World;
+	Matrix4x4 WorldInverseTranspose; // 法線を変換するための行列（Worldの逆転置行列）
 };
 
 // Instancing用（StructuredBufferに入れる）。HLSL側のParticleForGPUと並びを合わせる
@@ -92,6 +95,10 @@ struct Material
 	int32_t enableLighting;
 	float padding[3];
 	Matrix4x4 uvTransform;
+	float shininess;     // 光沢度（大きいほどハイライトが小さく鋭くなる）
+	Vector3 specularColor; // 物体の鏡面反射色（shininessと合わせて16byteになる）
+	int32_t useBlinnPhong; // 1:Blinn-Phong、0:Phong（比較用に切り替えられる）
+	float padding3[3];     // 全体を16byteの倍数(128byte)に揃える
 };
 
 struct MaterialData
@@ -104,6 +111,13 @@ struct DirectionalLight
 	Vector4 color;     // ライトの色
 	Vector3 direction; // ライトの向き
 	float intensity;   // 輝度
+};
+
+// カメラのワールド位置（PixelShaderへ送る。HLSL側のCameraと並びを合わせる）
+struct CameraForGPU
+{
+	Vector3 worldPosition;
+	float padding; // 定数バッファは16byte単位で読まれるので、float3だけだと範囲外を読んでしまう。16byteに揃える
 };
 
 
@@ -120,6 +134,22 @@ struct Particle
 	Vector4 color;
 	float lifeTime;
 	float currentTime;
+};
+
+// Particleを発生させる装置
+struct Emitter
+{
+	FKEngine::Particle transform; // エミッタのTransform（translateが発生位置）
+	uint32_t count;               // 発生数
+	float frequency;              // 発生頻度（秒）
+	float frequencyTime;          // 頻度用時刻
+};
+
+// 加速度フィールド（範囲内のParticleに一定の加速度を与える）
+struct AccelerationField
+{
+	Vector3 acceleration; // 加速度
+	AABB area;            // 範囲
 };
 
 struct ParticleGPU
@@ -661,7 +691,7 @@ std::random_device seedGenerator;
 std::mt19937 randomEngine(seedGenerator());
 
 
-Particle MakeNewParticle(std::mt19937& randomEngine)
+Particle MakeNewParticle(std::mt19937& randomEngine, const Vector3& translate)
 {
 	std::uniform_real_distribution<float> distribution(-1.0f, 1.0f);
 	std::uniform_real_distribution<float> distColor(0.0f, 1.0f);
@@ -670,12 +700,25 @@ Particle MakeNewParticle(std::mt19937& randomEngine)
 	Particle particle;
 	particle.transform.scale = { 1.0f,1.0f,1.0f };
 	particle.transform.rotate = { 0.0f,0.0f,0.0f };
-	particle.transform.translate = { distribution(randomEngine),distribution(randomEngine),distribution(randomEngine) };
+	// 発生位置(エミッタの位置)からランダムに少しずらす
+	Vector3 randomTranslate{ distribution(randomEngine),distribution(randomEngine),distribution(randomEngine) };
+	particle.transform.translate = Vector3::Add(translate, randomTranslate);
 	particle.velocity = { distribution(randomEngine),distribution(randomEngine),distribution(randomEngine) };
 	particle.color = { distColor(randomEngine),distColor(randomEngine),distColor(randomEngine),1.0f };
 	particle.lifeTime = distTime(randomEngine);
 	particle.currentTime = 0.0f;
 	return particle;
+}
+
+// Emitterの設定どおりにParticleを発生させる
+std::list<Particle> Emit(const Emitter& emitter, std::mt19937& randomEngine)
+{
+	std::list<Particle> particles;
+	for (uint32_t count = 0; count < emitter.count; ++count)
+	{
+		particles.push_back(MakeNewParticle(randomEngine, emitter.transform.translate));
+	}
+	return particles;
 }
 
 // ---------------------------------------------
@@ -1011,7 +1054,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 	// RootParameterの設定
-	D3D12_ROOT_PARAMETER rootParameters[4] = {};
+	D3D12_ROOT_PARAMETER rootParameters[5] = {};
 
 	// [0] CBV  PixelShaderで利用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -1032,6 +1075,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    // CBVを使う
 	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
 	rootParameters[3].Descriptor.ShaderRegister = 1;                    // レジスタ番号1を使う
+
+	// カメラの位置（b2）。PixelShaderで使う
+	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[4].Descriptor.ShaderRegister = 2;
 
 	// StaticSamplerの設定
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -1290,6 +1338,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// WHITE
 	materialData->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = 1;
+	materialData->shininess = 40.0f;
+	materialData->specularColor = { 1.0f, 1.0f, 1.0f };
+	materialData->useBlinnPhong = 1;
 
 	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 
@@ -1311,11 +1362,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 単位行列を書き込んでおく
 	transformationMatrixData->WVP = MakeIdentity4x4();
 	transformationMatrixData->World = MakeIdentity4x4();
+	transformationMatrixData->WorldInverseTranspose = MakeIdentity4x4();
 
 	FKEngine::Particle transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
 	// Sprite用のtransformationMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = CreateBufferResource(device.Get(), sizeof(Matrix4x4) * 2);
+	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
 
 	// データを書き込む
 	Matrix4x4* transformationMatrixDataSprite = nullptr;
@@ -1386,7 +1438,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };      // 白色の光
 	directionalLightData->direction = { 0.0f, -1.0f, 1.0f };     // 斜め下・手前方向へ進む光
 	directionalLightData->intensity = 1.0f;
+
+	// カメラのワールド位置を送るためのResource。Mapしたままにして、毎フレーム書き換える
+	ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device.Get(), sizeof(CameraForGPU));
+	CameraForGPU* cameraData = nullptr;
+	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
+	cameraData->worldPosition = { 0.0f, 0.0f, 0.0f };
 	materialDataSprite->enableLighting = 0;
+	materialDataSprite->shininess = 40.0f;
+	materialDataSprite->specularColor = { 1.0f, 1.0f, 1.0f };
+	materialDataSprite->useBlinnPhong = 1;
 
 	const float pi = 3.14159265f;
 	float latitudeStep = pi / kSubdivision;
@@ -1560,6 +1621,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ComPtr<ID3D12Resource> textureResource3 = CreateTextureResource(device.Get(), metadata3);
 	ComPtr<ID3D12Resource> intermediateResource3 = UploadTextureData(textureResource3.Get(), mipImages3, device.Get(), commandList.Get());
 
+	// Particle(球)用のTexture(monsterBall.png)
+	DirectX::ScratchImage mipImages4 = LoadTexture("resources/monsterBall.png");
+	const DirectX::TexMetadata& metadata4 = mipImages4.GetMetadata();
+	ComPtr<ID3D12Resource> textureResource4 = CreateTextureResource(device.Get(), metadata4);
+	ComPtr<ID3D12Resource> intermediateResource4 = UploadTextureData(textureResource4.Get(), mipImages4, device.Get(), commandList.Get());
+
 
 	// DirectInputの初期化
 	IDirectInput8* directInput = nullptr;
@@ -1622,6 +1689,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
 
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc4{};
+	srvDesc4.Format = metadata4.format;
+	srvDesc4.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc4.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc4.Texture2D.MipLevels = UINT(metadata4.mipLevels);
+
 	// SRVを作成するDescriptorHeapの場所を決める
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
@@ -1633,14 +1706,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
 
+	// Heapの6番目にParticle(球)用のmonsterBall.pngのSRVを作成する（5:monsterBall）
+	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU4 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
+	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU4 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
+
 
 	// SRVの生成
 	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
 	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 	device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
+	device->CreateShaderResourceView(textureResource4.Get(), &srvDesc4, textureSrvHandleCPU4);
 
 	////////////////////////////// Instancing ////////////////////////////
-	const uint32_t kNumMaxInstance = 10; // 最大インスタンス数
+	const uint32_t kNumMaxInstance = 100; // 最大インスタンス数
 
 	// Instancing用のTransformationMatrixリソースを作る
 	Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
@@ -1673,20 +1751,41 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
-	// Instancing用に最大数分のParticleを用意し、位置が少しずつずれるように初期化する
-	Particle particles[kNumMaxInstance];
-	for (uint32_t index = 0; index < kNumMaxInstance; ++index)
-	{
-		particles[index] = MakeNewParticle(randomEngine);
-	}
+	// CPU側のParticleはlistで管理する（最大数を予め決めなくてよい）
+	std::list<Particle> particles;
+
+	// Particleを発生させるEmitter（どこから・何個・どのくらいの頻度で発生するか）
+	Emitter emitter{};
+	emitter.transform = { {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+	emitter.count = 3;          // 3個ずつ発生
+	emitter.frequency = 0.5f;   // 0.5秒ごとに発生
+	emitter.frequencyTime = 0.0f; // 頻度用時刻。0で初期化
 
 	// Δtを定義。とりあえず60fps固定
 	const float kDeltaTime = 1.0f / 60.0f;
+
+	// 風を表現するField。+x方向に15m/sの加速度、範囲は原点中心で-1〜1
+	AccelerationField accelerationField;
+	accelerationField.acceleration = { 15.0f, 0.0f, 0.0f };
+	accelerationField.area.min = { -1.0f, -1.0f, -1.0f };
+	accelerationField.area.max = { 1.0f, 1.0f, 1.0f };
+
+	// trueでFieldの加速度を適用する（ImGuiでON/OFF切り替え）
+	bool useAccelerationField = true;
 
 	// trueでParticle用のPipeline(Instancing描画)、falseで従来のObject3d用Pipelineで描画する
 	bool useInstancing = true;
 
 	bool useMonsterBall = false; // falseでuvChecker.pngを貼る
+
+	// trueでParticleを常にカメラの方へ向ける(Billboard)
+	bool useBillboard = true;
+
+	// trueでモンスターボールを1個だけ表示する（ライティング付きのObject3d用Pipelineで描画）
+	bool showBall = true;
+
+	// falseにするとParticleの移動と経過時間が止まる（確認用）
+	bool update = true;
 
 	// xAudioエンジンのインスタンスを生成
 	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
@@ -1754,7 +1853,38 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			const char* blendModeNames[] = { "None", "Normal", "Add", "Subtract", "Multiply", "Screen" };
 			ImGui::Combo("BlendMode", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
 			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+			ImGui::Checkbox("useBillboard", &useBillboard);
+			ImGui::Checkbox("update", &update);
+			// Emitterの設定
+			ImGui::DragFloat3("Emitter Translate", &emitter.transform.translate.x, 0.05f, -100.0f, 100.0f);
+			int emitCount = int(emitter.count);
+			if (ImGui::DragInt("Emit Count", &emitCount, 0.1f, 0, 20))
+			{
+				emitter.count = uint32_t(emitCount);
+			}
+			ImGui::DragFloat("Emit Frequency", &emitter.frequency, 0.01f, 0.05f, 5.0f);
+			// ボタンを押したらEmitterの設定どおりにParticleが追加される
+			if (ImGui::Button("Add Particle"))
+			{
+				particles.splice(particles.end(), Emit(emitter, randomEngine));
+			}
+			ImGui::Text("Acceleration Field");
+			ImGui::Checkbox("Use Acceleration Field", &useAccelerationField);
+			ImGui::DragFloat3("Field Acceleration", &accelerationField.acceleration.x, 0.1f);
+			ImGui::DragFloat3("Field Area Min", &accelerationField.area.min.x, 0.05f);
+			ImGui::DragFloat3("Field Area Max", &accelerationField.area.max.x, 0.05f);
 			ImGui::Checkbox("Use Instancing (Particle)", &useInstancing);
+			ImGui::Separator();
+			ImGui::Text("MonsterBall (Single)");
+			ImGui::Checkbox("Show MonsterBall", &showBall);
+			ImGui::DragFloat3("Ball Translate", &transform.translate.x, 0.05f);
+			// 全成分を同じ値でスケールする（X,Y,Zが同じ値になる）
+			float uniformScale = transform.scale.x;
+			if (ImGui::DragFloat("Ball Scale (All)", &uniformScale, 0.01f, 0.01f, 10.0f))
+			{
+				transform.scale = { uniformScale, uniformScale, uniformScale };
+			}
+			ImGui::DragFloat3("Ball Scale (XYZ)", &transform.scale.x, 0.01f, 0.01f, 10.0f);
 			ImGui::Separator();
 			ImGui::Text("Lighting Setting");
 
@@ -1763,6 +1893,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			{
 				materialData->enableLighting = enableLighting ? 1 : 0;
 			}
+
+			// 光沢度（鏡面反射のハイライトの鋭さ）
+			ImGui::SliderFloat("Shininess", &materialData->shininess, 1.0f, 200.0f);
+			// 鏡面反射の計算方法の切り替え（ON:Blinn-Phong、OFF:Phong）
+			bool useBlinnPhong = (materialData->useBlinnPhong != 0);
+			if (ImGui::Checkbox("Use Blinn-Phong", &useBlinnPhong))
+			{
+				materialData->useBlinnPhong = useBlinnPhong ? 1 : 0;
+			}
+			// 鏡面反射色（ハイライトの色）と、ライトの色
+			ImGui::ColorEdit3("Specular Color", &materialData->specularColor.x);
+			ImGui::ColorEdit3("Light Color", &directionalLightData->color.x);
 
 			// 平行光源の向きの変更
 			float lightDirection[3] = { directionalLightData->direction.x, directionalLightData->direction.y, directionalLightData->direction.z };
@@ -1830,6 +1972,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
 				viewMatrix = Inverse(cameraMatrix); // カメラの逆行列がビュー行列
 			}
+
+			// ビュー行列の逆行列がカメラのワールド行列。その平行移動成分がカメラのワールド位置
+			{
+				Matrix4x4 cameraWorldMatrix = Inverse(viewMatrix);
+				cameraData->worldPosition = { cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2] };
+			}
+
 			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // スプライトはカメラの影響を受けないので、ビュー行列は単位行列
 
 			// 投影行列
@@ -1843,33 +1992,84 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// 定数バッファへ書き込み
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
 			transformationMatrixData->World = worldMatrix;
+			// 法線用。非均一スケールでも法線が面に対して垂直のままになる
+			transformationMatrixData->WorldInverseTranspose = Transpose(Inverse(worldMatrix));
 
 			// Instancing用のTransformationMatrixを更新する
 			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
-			uint32_t numInstance = 0; // 描画すべきインスタンス数
-			for (uint32_t index = 0; index < kNumMaxInstance; ++index)
+
+			// BillboardMatrixを作る（全てのParticleで同じ行列を使える）
+			Matrix4x4 billboardMatrix = MakeIdentity4x4(); // 利用しない場合は単位行列
+			if (useBillboard)
 			{
-				// 生存期間を過ぎていたら更新せず描画対象にしない
-				if (particles[index].lifeTime <= particles[index].currentTime)
+				// ビュー行列の逆行列がカメラのワールド行列（デバッグカメラ使用時も同じ式で求まる）
+				Matrix4x4 cameraMatrix = Inverse(viewMatrix);
+				// 板ポリの裏が見えているので、Y軸でπ回転させて表をカメラ側へ向ける
+				Matrix4x4 backToFrontMatrix = MakeRotateYMatrix(std::numbers::pi_v<float>);
+				billboardMatrix = Multiply(backToFrontMatrix, cameraMatrix);
+				// 平行移動成分はいらない
+				billboardMatrix.m[3][0] = 0.0f;
+				billboardMatrix.m[3][1] = 0.0f;
+				billboardMatrix.m[3][2] = 0.0f;
+			}
+			// Emitterの頻度に従ってParticleを発生させる
+			if (update)
+			{
+				emitter.frequencyTime += kDeltaTime; // 時刻を進める
+				if (emitter.frequency <= emitter.frequencyTime) // 頻度より大きいなら発生
 				{
+					// 発生処理。発生したParticleをparticlesの後ろに連結する
+					particles.splice(particles.end(), Emit(emitter, randomEngine));
+					// 余計に過ぎた時間も加味して頻度用時刻を更新する
+					emitter.frequencyTime -= emitter.frequency;
+				}
+			}
+
+			uint32_t numInstance = 0; // 描画すべきインスタンス数
+			for (std::list<Particle>::iterator particleIterator = particles.begin();
+				particleIterator != particles.end(); )
+			{
+				// 生存期間が過ぎたParticleはlistから消す。戻り値が次のイテレータとなる
+				if ((*particleIterator).lifeTime <= (*particleIterator).currentTime)
+				{
+					particleIterator = particles.erase(particleIterator);
 					continue;
 				}
 
-				// 速度を反映して移動させる
-				particles[index].transform.translate.x += particles[index].velocity.x * kDeltaTime;
-				particles[index].transform.translate.y += particles[index].velocity.y * kDeltaTime;
-				particles[index].transform.translate.z += particles[index].velocity.z * kDeltaTime;
-				particles[index].currentTime += kDeltaTime; // 経過時間を足す
+				if (update)
+				{
+					// Fieldの範囲内のParticleには加速度を適用する
+					if (useAccelerationField && IsCollision(accelerationField.area, (*particleIterator).transform.translate))
+					{
+						(*particleIterator).velocity.x += accelerationField.acceleration.x * kDeltaTime;
+						(*particleIterator).velocity.y += accelerationField.acceleration.y * kDeltaTime;
+						(*particleIterator).velocity.z += accelerationField.acceleration.z * kDeltaTime;
+					}
 
-				Matrix4x4 instanceWorldMatrix = MakeAffineMatrix(
-					particles[index].transform.scale,
-					particles[index].transform.rotate,
-					particles[index].transform.translate);
-				Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
-				instancingData[numInstance].WVP = instanceWVPMatrix;
-				instancingData[numInstance].World = instanceWorldMatrix;
-				instancingData[numInstance].color = particles[index].color;
-				++numInstance; // 生きているParticleの数を1つカウントする
+					// 速度を反映して移動させる
+					(*particleIterator).transform.translate.x += (*particleIterator).velocity.x * kDeltaTime;
+					(*particleIterator).transform.translate.y += (*particleIterator).velocity.y * kDeltaTime;
+					(*particleIterator).transform.translate.z += (*particleIterator).velocity.z * kDeltaTime;
+					(*particleIterator).currentTime += kDeltaTime; // 経過時間を足す
+				}
+
+				// GPU側のバッファは最大数固定なので、範囲外に書き込まないようにする（バッファオーバーラン対策）
+				if (numInstance < kNumMaxInstance)
+				{
+					// scale * billboard * translate
+					Matrix4x4 scaleMatrix = MakeScaleMatrix((*particleIterator).transform.scale);
+					Matrix4x4 translateMatrix = MakeTranslateMatrix((*particleIterator).transform.translate);
+					Matrix4x4 instanceWorldMatrix = Multiply(Multiply(scaleMatrix, billboardMatrix), translateMatrix);
+					Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
+					instancingData[numInstance].WVP = instanceWVPMatrix;
+					instancingData[numInstance].World = instanceWorldMatrix;
+					instancingData[numInstance].color = (*particleIterator).color;
+					// 経過時間が生存時間に近づくほどαを0に近づける
+					float alpha = 1.0f - ((*particleIterator).currentTime / (*particleIterator).lifeTime);
+					instancingData[numInstance].color.w = alpha;
+					++numInstance; // 生きているParticleの数を1つカウントする
+				}
+				++particleIterator; // 次のイテレータに進める
 			}
 
 			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
@@ -1942,6 +2142,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
+			// カメラの位置の場所を設定
+			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
 			/////////////////// 三角形用の描画
 			//commandList->IASetVertexBuffers(0, 1, &vertexBufferView); //  球のVBVを設定
@@ -1951,6 +2153,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			if (!useInstancing)
 			{
 				commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
+			}
+
+			// モンスターボールを1個だけ描画する（Enable LightingやLight Directionなどが効く）
+			if (showBall)
+			{
+				commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // 球のVBV
+				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU4); // monsterBall.png
+				commandList->DrawInstanced(kVertexCount, 1, 0, 0);
 			}
 
 			///////////////////////////////////
@@ -1976,7 +2186,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// RootSignatureが変わるので、必要なものは全て設定し直す
 			if (useInstancing)
 			{
-				assert(kNumMaxInstance <= 10); // 確保したResourceの数を超えないようにする
+				assert(kNumMaxInstance <= 100); // 確保したResourceの数を超えないようにする
 
 				commandList->SetGraphicsRootSignature(particleRootSignature.Get());
 				commandList->SetPipelineState(particlePipelineStates[currentBlendMode].Get());

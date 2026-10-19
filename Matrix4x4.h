@@ -82,3 +82,13 @@ Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float botto
 // 積
 Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2);
 Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2);
+
+// 軸平行境界ボックス（Axis Aligned Bounding Box）
+struct AABB
+{
+    Vector3 min; // 最小点
+    Vector3 max; // 最大点
+};
+
+// 点とAABBの当たり判定
+bool IsCollision(const AABB& aabb, const Vector3& point);

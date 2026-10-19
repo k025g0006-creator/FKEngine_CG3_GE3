@@ -42,6 +42,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "ResourceObject.h"
 #include "Sound.h"
 #include "DebugCamera.h"
+#include "Input.h"
 
 #include <fstream>
 #include <sstream>
@@ -104,28 +105,11 @@ struct ModelData
 ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
 MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
 
-BYTE key[256] = {};
-
-BYTE keyPre[256] = {};
-
-
 void Log(std::ostream& os, const std::string& message)
 {
 	os << message << std::endl;
 	OutputDebugStringA(message.c_str());
 }
-
-// キーを押した状態か
-bool PushKey(uint8_t keyNumber);
-
-// キーを話した状態か
-bool ReleaseKey(uint8_t keyNumber);
-
-// キーを押した瞬間か
-bool TriggerKey(uint8_t keyNumber);
-
-// キーを話した瞬間か
-bool ReleaseTriggerKey(uint8_t keyNumber);
 
 // string->wstring
 std::wstring ConvertString(const std::string& str)
@@ -579,35 +563,6 @@ ModelData LoadObjFile(const std::string& directoryPath, const std::string& filen
 
 Microsoft::WRL::ComPtr<ID3D12Resource>
 CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata);
-
-
-// ---------------------------------------------
-// トリガー処理
-// ---------------------------------------------
-
-// キーを押した状態か
-bool PushKey(uint8_t keyNumber)
-{
-	return key[keyNumber] != 0;
-}
-
-// キーを離した状態か
-bool ReleaseKey(uint8_t keyNumber)
-{
-	return key[keyNumber] == 0;
-}
-
-// キーを押した瞬間か
-bool TriggerKey(uint8_t keyNumber)
-{
-	return key[keyNumber] != 0 && keyPre[keyNumber] == 0;
-}
-
-// キーを離した瞬間か
-bool ReleaseTriggerKey(uint8_t keyNumber)
-{
-	return key[keyNumber] == 0 && keyPre[keyNumber] != 0;
-}
 
 
 // Windowsアプリでのエントリーポイント(main関数)
@@ -1413,18 +1368,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	hr = DirectInput8Create(wc.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
 	assert(SUCCEEDED(hr));
 
-	// キーボードデバイスの生成
-	IDirectInputDevice8* keyboard = nullptr;
-	hr = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
-	assert(SUCCEEDED(hr));
-
-	// 入力データ形式のセット
-	hr = keyboard->SetDataFormat(&c_dfDIKeyboard);  // 標準形式
-	assert(SUCCEEDED(hr));
-
-	// 排他制御レベルのセット
-	hr = keyboard->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
-	assert(SUCCEEDED(hr));
+	Input* input = new Input();
+	bool inputInitialized = input->Initialize(directInput, hwnd);
+	assert(inputInitialized);
 
 	// マウスデバイスの生成
 	IDirectInputDevice8* mouse = nullptr;
@@ -1501,11 +1447,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		else
 		{
 
-			// キーボード情報の取得開始
-			keyboard->Acquire();
-
-			// 全キーの入力状態を取得する
-			keyboard->GetDeviceState(sizeof(key), key);
+			input->Update();
 
 			// マウス情報の取得開始
 			mouse->Acquire();
@@ -1514,13 +1456,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			DIMOUSESTATE mouseState{};
 			mouse->GetDeviceState(sizeof(DIMOUSESTATE), &mouseState);
 
-			if (TriggerKey(DIK_0))
+			if (input->TriggerKey(DIK_0))
 			{
 				OutputDebugStringA("Hit 0\n"); // 出力ウィンドウに「Hit 0」と表示
 			}
 
 			// デバッグカメラのON/OFF切り替え
-			if (TriggerKey(DIK_F1))
+			if (input->TriggerKey(DIK_F1))
 			{
 				isDebugCameraActive = !isDebugCameraActive;
 			}
@@ -1530,7 +1472,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			{
 				// マウス左ボタンが押されているか
 				bool isLeftMouseDown = (mouseState.rgbButtons[0] & 0x80) != 0;
-				debugCamera.Update(key, mouseState.lX, mouseState.lY, isLeftMouseDown);
+				debugCamera.Update(input->GetKeys(), mouseState.lX, mouseState.lY, isLeftMouseDown);
 			}
 
 #ifdef USE_IMGUI
@@ -1777,8 +1719,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			hr = commandList->Reset(commandAllocator.Get(), nullptr);
 			assert(SUCCEEDED(hr));
 
-			// 前フレームのキー入力状態を保存
-			memcpy(keyPre, key, sizeof(key));
 		}
 	}
 
@@ -1801,6 +1741,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	CloseHandle(fenceEvent);
 
+
+	input->Finalize();
+	delete input;
 
 	CloseWindow(hwnd);
 

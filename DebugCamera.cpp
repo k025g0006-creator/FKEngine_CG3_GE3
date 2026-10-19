@@ -1,7 +1,5 @@
 #include "DebugCamera.h"
-
-#define DIRECTINPUT_VERSION 0x0800
-#include <dinput.h>
+#include "Input.h"
 
 void DebugCamera::Initialize(uint32_t clientWidth, uint32_t clientHeight)
 {
@@ -19,9 +17,9 @@ void DebugCamera::Initialize(uint32_t clientWidth, uint32_t clientHeight)
 	viewMatrix_ = Inverse(worldMatrix);
 }
 
-void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLeftMouseDown)
+void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLeftMouseDown)
 {
-	if (key == nullptr)
+	if (input == nullptr)
 	{
 		return;
 	}
@@ -42,34 +40,34 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 	}
 
 	// X軸周り回転の入力があったら、X軸周りの角度を加算する
-	if (key[DIK_UP])
+	if (input->PushKey(DIK_UP))
 	{
 		rotDeltaX -= keyRotateSpeed_;
 	}
 
-	if (key[DIK_DOWN])
+	if (input->PushKey(DIK_DOWN))
 	{
 		rotDeltaX += keyRotateSpeed_;
 	}
 
 	// Y軸周り回転の入力があったら、Y軸周りの角度を加算する
-	if (key[DIK_LEFT])
+	if (input->PushKey(DIK_LEFT))
 	{
 		rotDeltaY -= keyRotateSpeed_;
 	}
 
-	if (key[DIK_RIGHT])
+	if (input->PushKey(DIK_RIGHT))
 	{
 		rotDeltaY += keyRotateSpeed_;
 	}
 
 	// Z軸周り回転の入力があったら、Z軸周りの角度を加算する
-	if (key[DIK_Z])
+	if (input->PushKey(DIK_Z))
 	{
 		rotDeltaZ -= keyRotateSpeed_;
 	}
 
-	if (key[DIK_C])
+	if (input->PushKey(DIK_C))
 	{
 		rotDeltaZ += keyRotateSpeed_;
 	}
@@ -90,7 +88,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 
 
 	// ---- 前後移動 ----
-	if (key[DIK_W]) // 前移動
+	if (input->PushKey(DIK_W)) // 前移動
 	{
 		const float speed = moveSpeed_;                  // 前進の速さ
 		Vector3 move = { 0.0f, 0.0f, speed };            // カメラ移動ベクトル
@@ -99,7 +97,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 
 		translation_ = Vector3::Add(translation_, move); // 移動ベクトル分だけ座標を加算する
 	}
-	if (key[DIK_S]) // 後ろ移動
+	if (input->PushKey(DIK_S)) // 後ろ移動
 	{
 		const float speed = -moveSpeed_;
 		Vector3 move = { 0.0f, 0.0f, speed };
@@ -110,7 +108,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 	}
 
 	// ---- 左右移動 ----
-	if (key[DIK_D]) // 右移動
+	if (input->PushKey(DIK_D)) // 右移動
 	{
 		const float speed = moveSpeed_;                  // 右移動の速さ
 		Vector3 move = { speed, 0.0f, 0.0f };            // カメラ移動ベクトル
@@ -119,7 +117,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 
 		translation_ = Vector3::Add(translation_, move); // 移動ベクトル分だけ座標を加算する
 	}
-	if (key[DIK_A]) // 左移動
+	if (input->PushKey(DIK_A)) // 左移動
 	{
 		const float speed = -moveSpeed_;
 		Vector3 move = { speed, 0.0f, 0.0f };
@@ -130,7 +128,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 	}
 
 	// ---- 上下移動 ----
-	if (key[DIK_E]) // 上移動
+	if (input->PushKey(DIK_E)) // 上移動
 	{
 		const float speed = moveSpeed_;                   // 上移動の速さ
 		Vector3 move = { 0.0f, speed, 0.0f };             // カメラ移動ベクトル
@@ -139,7 +137,7 @@ void DebugCamera::Update(const uint8_t* key, long mouseX, long mouseY, bool isLe
 
 		translation_ = Vector3::Add(translation_, move);  // 移動ベクトル分だけ座標を加算する
 	}
-	if (key[DIK_Q]) // 下移動
+	if (input->PushKey(DIK_Q)) // 下移動
 	{
 		const float speed = -moveSpeed_;
 		Vector3 move = { 0.0f, speed, 0.0f };

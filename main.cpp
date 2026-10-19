@@ -1,5 +1,6 @@
 #include <Windows.h>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <format>
 #include <filesystem>
@@ -22,12 +23,6 @@
 #include <xaudio2.h>
 #pragma comment(lib,"xaudio2.lib")
 
-#define DIRECTINPUT_VERSION   0x0800  
-#include <dinput.h>
-
-#pragma comment(lib,"dinput8.lib")
-#pragma comment(lib, "dxguid.lib")
-
 #ifdef USE_IMGUI
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
@@ -45,7 +40,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "Input.h"
 #include "WinApp.h"
 
-#include <fstream>
 #include <sstream>
 
 #include <random>
@@ -1686,7 +1680,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			{
 				// マウス左ボタンが押されているか
 				bool isLeftMouseDown = (mouseState.rgbButtons[0] & 0x80) != 0;
-				debugCamera.Update(input->GetKeys(), mouseState.lX, mouseState.lY, isLeftMouseDown);
+				debugCamera.Update(input, mouseState.lX, mouseState.lY, isLeftMouseDown);
 			}
 
 #ifdef USE_IMGUI

@@ -2,6 +2,8 @@
 #include "Matrix4x4.h"
 #include <cstdint>
 
+class Input;
+
 class DebugCamera
 {
 public:
@@ -10,7 +12,7 @@ public:
 	void Initialize(uint32_t clientWidth, uint32_t clientHeight);
 
 	
-	void Update(const uint8_t* key, long mouseX, long mouseY, bool isLeftMouseDown);
+	void Update(const Input* input, long mouseX, long mouseY, bool isLeftMouseDown);
 
 	// ビュー行列を取得
 	const Matrix4x4& GetViewMatrix() const { return viewMatrix_; }

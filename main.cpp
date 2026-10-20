@@ -11,6 +11,7 @@
 #include <dxgi1_6.h>
 #pragma comment(lib, "dxgi.lib")
 #include <cassert>
+#include <algorithm>
 #include <dbghelp.h>
 #pragma comment(lib, "Dbghelp.lib")
 #include <strsafe.h>
@@ -111,6 +112,29 @@ struct DirectionalLight
 	Vector4 color;     // ライトの色
 	Vector3 direction; // ライトの向き
 	float intensity;   // 輝度
+};
+
+struct PointLight
+{
+	Vector4 color;     // ライトの色
+	Vector3 position;  // ライトの位置
+	float intensity;   // 輝度
+	float radius;      // ライトの影響範囲
+	float decay;       // 影響範囲内での減衰率
+	float padding[2];  // 定数バッファを16byte境界に揃える
+};
+
+struct SpotLight
+{
+	Vector4 color;     // ライトの色
+	Vector3 position;  // ライトの位置
+	float intensity;   // 輝度
+	Vector3 direction; // 光が進む方向
+	float distance;    // 影響範囲
+	float decay;       // 距離による減衰率
+	float cosAngle;         // 照射範囲の境界角のcos
+	float cosFalloffStart;  // Falloffを開始する角度のcos
+	float padding[1];       // 定数バッファを16byte境界に揃える
 };
 
 // カメラのワールド位置（PixelShaderへ送る。HLSL側のCameraと並びを合わせる）
@@ -1010,6 +1034,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGui::StyleColorsDark();
+	ImGuiIO& io = ImGui::GetIO();
+	io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 16.0f, nullptr, io.Fonts->GetGlyphRangesJapanese());
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX12_Init(device.Get(),
 		swapChainDesc.BufferCount,
@@ -1017,7 +1043,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		srvDescriptorHeap.Get(),
 		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0),
 		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
-	ImGuiIO io = ImGui::GetIO();
 	io.Fonts->Build();
 #endif
 	/////////////////////////////////////////////////////////////////
@@ -1054,7 +1079,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 	// RootParameterの設定
-	D3D12_ROOT_PARAMETER rootParameters[5] = {};
+	D3D12_ROOT_PARAMETER rootParameters[7] = {};
 
 	// [0] CBV  PixelShaderで利用
 	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -1080,6 +1105,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 	rootParameters[4].Descriptor.ShaderRegister = 2;
+
+	// [5] PointLight CBV (b3)
+	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[5].Descriptor.ShaderRegister = 3;
+
+	// [6] SpotLight CBV (b4)
+	rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	rootParameters[6].Descriptor.ShaderRegister = 4;
 
 	// StaticSamplerの設定
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -1205,8 +1240,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		assert(SUCCEEDED(hr));
 	}
 
-	// 現在のBlendMode
-	int currentBlendMode = kBlendModeAdd; // Particleは加算ブレンドで描画する
+	// モデル類は通常の不透明描画、Particleは加算ブレンドで描画する
+	int currentBlendMode = kBlendModeNone;
+	int currentParticleBlendMode = kBlendModeAdd;
 
 	////////////////////////////// Particle用 ////////////////////////////
 	// Instancing用のStructuredBuffer(SRV)をVertexShaderのt0で使うためのDescriptorRange
@@ -1286,6 +1322,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	////////////////////////////// モデル読み込み ////////////////////////////
 	ModelData modelData = LoadObjFile("Resources", "plane.obj");
+	ModelData terrainData = LoadObjFile("Resources", "terrain.obj");
 	//ModelData modelDataAxis = LoadObjFile("Resources", "axis.obj");
 
 	// 頂点リソースを作る
@@ -1301,6 +1338,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	VertexData* vertexDataModel = nullptr;
 	vertexResourceModel->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataModel));
 	std::memcpy(vertexDataModel, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size()); // 頂点データをリソースにコピー
+
+	ComPtr<ID3D12Resource> terrainVertexResource = CreateBufferResource(
+		device.Get(), sizeof(VertexData) * terrainData.vertices.size());
+	D3D12_VERTEX_BUFFER_VIEW terrainVertexBufferView{};
+	terrainVertexBufferView.BufferLocation = terrainVertexResource->GetGPUVirtualAddress();
+	terrainVertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * terrainData.vertices.size());
+	terrainVertexBufferView.StrideInBytes = sizeof(VertexData);
+	VertexData* terrainVertexData = nullptr;
+	hr = terrainVertexResource->Map(0, nullptr, reinterpret_cast<void**>(&terrainVertexData));
+	assert(SUCCEEDED(hr));
+	std::memcpy(terrainVertexData, terrainData.vertices.data(), sizeof(VertexData) * terrainData.vertices.size());
 
 
 	/////////////////////////////////////////////////////////////////////////
@@ -1339,7 +1387,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	materialData->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 	materialData->enableLighting = 1;
 	materialData->shininess = 40.0f;
-	materialData->specularColor = { 1.0f, 1.0f, 1.0f };
+	materialData->specularColor = { 0.25f, 0.25f, 0.25f };
 	materialData->useBlinnPhong = 1;
 
 	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
@@ -1349,6 +1397,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
 	ComPtr<ID3D12Resource> wvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
+	ComPtr<ID3D12Resource> terrainWvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
 
 	// データを書き込む
 	Matrix4x4* wvpData = nullptr;
@@ -1358,11 +1407,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 書き込むためのアドレスを取得
 
 	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixData));
+	TransformationMatrix* terrainTransformationData = nullptr;
+	hr = terrainWvpResource->Map(0, nullptr, reinterpret_cast<void**>(&terrainTransformationData));
+	assert(SUCCEEDED(hr));
 
 	// 単位行列を書き込んでおく
 	transformationMatrixData->WVP = MakeIdentity4x4();
 	transformationMatrixData->World = MakeIdentity4x4();
 	transformationMatrixData->WorldInverseTranspose = MakeIdentity4x4();
+	terrainTransformationData->WVP = MakeIdentity4x4();
+	terrainTransformationData->World = MakeIdentity4x4();
+	terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
 
 	FKEngine::Particle transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
@@ -1437,7 +1492,34 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };      // 白色の光
 	directionalLightData->direction = { 0.0f, -1.0f, 1.0f };     // 斜め下・手前方向へ進む光
-	directionalLightData->intensity = 1.0f;
+	directionalLightData->intensity = 0.0f;
+
+	ComPtr<ID3D12Resource> pointLightResource = CreateBufferResource(device.Get(), sizeof(PointLight));
+	PointLight* pointLightData = nullptr;
+	hr = pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData));
+	assert(SUCCEEDED(hr));
+	pointLightData->color = { 1.0f, 0.85f, 0.65f, 1.0f };
+	pointLightData->position = { 0.0f, 2.0f, -3.0f };
+	pointLightData->intensity = 0.0f;
+	pointLightData->radius = 10.0f;
+	pointLightData->decay = 2.0f;
+	pointLightData->padding[0] = 0.0f;
+	pointLightData->padding[1] = 0.0f;
+
+	ComPtr<ID3D12Resource> spotLightResource = CreateBufferResource(device.Get(), sizeof(SpotLight));
+	SpotLight* spotLightData = nullptr;
+	hr = spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData));
+	assert(SUCCEEDED(hr));
+	spotLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	spotLightData->position = { 2.0f, 1.25f, 0.0f };
+	spotLightData->intensity = 4.0f;
+	Vector3 initialSpotDirection = { -1.0f, -1.0f, 0.0f };
+	spotLightData->direction = Vector3::Normalize(initialSpotDirection);
+	spotLightData->distance = 7.0f;
+	spotLightData->decay = 2.0f;
+	spotLightData->cosAngle = std::cos(std::numbers::pi_v<float> / 3.0f);
+	spotLightData->cosFalloffStart = std::cos(std::numbers::pi_v<float> / 6.0f);
+	spotLightData->padding[0] = 0.0f;
 
 	// カメラのワールド位置を送るためのResource。Mapしたままにして、毎フレーム書き換える
 	ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device.Get(), sizeof(CameraForGPU));
@@ -1580,9 +1662,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	scissorRect.bottom = kClientHeight;
 
 	// Transform変数を作る
-	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
+	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
 
-	FKEngine::Particle cameraTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,-10.0f} };
+	FKEngine::Particle cameraTransform{ {1.0f,1.0f,1.0f},{0.38f,0.0f,0.0f},{0.0f,6.0f,-16.0f} };
 
 	// デバッグカメラ
 	DebugCamera debugCamera;
@@ -1626,6 +1708,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	const DirectX::TexMetadata& metadata4 = mipImages4.GetMetadata();
 	ComPtr<ID3D12Resource> textureResource4 = CreateTextureResource(device.Get(), metadata4);
 	ComPtr<ID3D12Resource> intermediateResource4 = UploadTextureData(textureResource4.Get(), mipImages4, device.Get(), commandList.Get());
+
+	// terrain.mtl の map_Kd で指定された草テクスチャ
+	DirectX::ScratchImage terrainMipImages = LoadTexture(terrainData.material.textureFilePath);
+	const DirectX::TexMetadata& terrainMetadata = terrainMipImages.GetMetadata();
+	ComPtr<ID3D12Resource> terrainTextureResource = CreateTextureResource(device.Get(), terrainMetadata);
+	ComPtr<ID3D12Resource> terrainTextureUploadResource = UploadTextureData(
+		terrainTextureResource.Get(), terrainMipImages, device.Get(), commandList.Get());
 
 
 	// DirectInputの初期化
@@ -1709,6 +1798,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// Heapの6番目にParticle(球)用のmonsterBall.pngのSRVを作成する（5:monsterBall）
 	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU4 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
 	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU4 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
+	D3D12_CPU_DESCRIPTOR_HANDLE terrainTextureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 6);
+	D3D12_GPU_DESCRIPTOR_HANDLE terrainTextureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 6);
 
 
 	// SRVの生成
@@ -1716,6 +1807,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
 	device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
 	device->CreateShaderResourceView(textureResource4.Get(), &srvDesc4, textureSrvHandleCPU4);
+	D3D12_SHADER_RESOURCE_VIEW_DESC terrainSrvDesc{};
+	terrainSrvDesc.Format = terrainMetadata.format;
+	terrainSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	terrainSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	terrainSrvDesc.Texture2D.MipLevels = UINT(terrainMetadata.mipLevels);
+	device->CreateShaderResourceView(terrainTextureResource.Get(), &terrainSrvDesc, terrainTextureSrvHandleCPU);
 
 	////////////////////////////// Instancing ////////////////////////////
 	const uint32_t kNumMaxInstance = 100; // 最大インスタンス数
@@ -1846,69 +1943,103 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
 
-			ImGui::ShowDemoWindow();
-
-			ImGui::Begin("Material Window");
-			ImGui::ColorEdit4("Color", colorArray);
-			const char* blendModeNames[] = { "None", "Normal", "Add", "Subtract", "Multiply", "Screen" };
-			ImGui::Combo("BlendMode", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
-			ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-			ImGui::Checkbox("useBillboard", &useBillboard);
-			ImGui::Checkbox("update", &update);
+			ImGui::Begin("設定");
+			ImGui::ColorEdit4("色", colorArray);
+			const char* blendModeNames[] = { "なし", "通常", "加算", "減算", "乗算", "スクリーン" };
+			ImGui::Combo("オブジェクトの合成方法", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
+			ImGui::Combo("パーティクルの合成方法", &currentParticleBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
+			ImGui::Checkbox("モンスターボール用テクスチャ", &useMonsterBall);
+			ImGui::Checkbox("ビルボード表示", &useBillboard);
+			ImGui::Checkbox("更新する", &update);
 			// Emitterの設定
-			ImGui::DragFloat3("Emitter Translate", &emitter.transform.translate.x, 0.05f, -100.0f, 100.0f);
+			ImGui::DragFloat3("発生位置", &emitter.transform.translate.x, 0.05f, -100.0f, 100.0f);
 			int emitCount = int(emitter.count);
-			if (ImGui::DragInt("Emit Count", &emitCount, 0.1f, 0, 20))
+			if (ImGui::DragInt("発生数", &emitCount, 0.1f, 0, 20))
 			{
 				emitter.count = uint32_t(emitCount);
 			}
-			ImGui::DragFloat("Emit Frequency", &emitter.frequency, 0.01f, 0.05f, 5.0f);
+			ImGui::DragFloat("発生間隔", &emitter.frequency, 0.01f, 0.05f, 5.0f);
 			// ボタンを押したらEmitterの設定どおりにParticleが追加される
-			if (ImGui::Button("Add Particle"))
+			if (ImGui::Button("パーティクルを追加"))
 			{
 				particles.splice(particles.end(), Emit(emitter, randomEngine));
 			}
-			ImGui::Text("Acceleration Field");
-			ImGui::Checkbox("Use Acceleration Field", &useAccelerationField);
-			ImGui::DragFloat3("Field Acceleration", &accelerationField.acceleration.x, 0.1f);
-			ImGui::DragFloat3("Field Area Min", &accelerationField.area.min.x, 0.05f);
-			ImGui::DragFloat3("Field Area Max", &accelerationField.area.max.x, 0.05f);
-			ImGui::Checkbox("Use Instancing (Particle)", &useInstancing);
+			ImGui::Text("加速度フィールド");
+			ImGui::Checkbox("加速度フィールドを使う", &useAccelerationField);
+			ImGui::DragFloat3("加速度", &accelerationField.acceleration.x, 0.1f);
+			ImGui::DragFloat3("影響範囲 最小", &accelerationField.area.min.x, 0.05f);
+			ImGui::DragFloat3("影響範囲 最大", &accelerationField.area.max.x, 0.05f);
+			ImGui::Checkbox("パーティクルのインスタンシング", &useInstancing);
 			ImGui::Separator();
-			ImGui::Text("MonsterBall (Single)");
-			ImGui::Checkbox("Show MonsterBall", &showBall);
-			ImGui::DragFloat3("Ball Translate", &transform.translate.x, 0.05f);
+			ImGui::Text("モンスターボール");
+			ImGui::Checkbox("表示する", &showBall);
+			ImGui::DragFloat3("位置", &transform.translate.x, 0.05f);
 			// 全成分を同じ値でスケールする（X,Y,Zが同じ値になる）
 			float uniformScale = transform.scale.x;
-			if (ImGui::DragFloat("Ball Scale (All)", &uniformScale, 0.01f, 0.01f, 10.0f))
+			if (ImGui::DragFloat("全体の大きさ", &uniformScale, 0.01f, 0.01f, 10.0f))
 			{
 				transform.scale = { uniformScale, uniformScale, uniformScale };
 			}
-			ImGui::DragFloat3("Ball Scale (XYZ)", &transform.scale.x, 0.01f, 0.01f, 10.0f);
+			ImGui::DragFloat3("各軸の大きさ", &transform.scale.x, 0.01f, 0.01f, 10.0f);
 			ImGui::Separator();
-			ImGui::Text("Lighting Setting");
+			ImGui::Text("ライティング設定");
 
 			bool enableLighting = (materialData->enableLighting != 0);
-			if (ImGui::Checkbox("Enable Lighting", &enableLighting))
+			if (ImGui::Checkbox("ライティングを有効にする", &enableLighting))
 			{
 				materialData->enableLighting = enableLighting ? 1 : 0;
 			}
 
 			// 光沢度（鏡面反射のハイライトの鋭さ）
-			ImGui::SliderFloat("Shininess", &materialData->shininess, 1.0f, 200.0f);
+			ImGui::SliderFloat("光沢度", &materialData->shininess, 1.0f, 200.0f);
 			// 鏡面反射の計算方法の切り替え（ON:Blinn-Phong、OFF:Phong）
 			bool useBlinnPhong = (materialData->useBlinnPhong != 0);
-			if (ImGui::Checkbox("Use Blinn-Phong", &useBlinnPhong))
+			if (ImGui::Checkbox("Blinn-Phong反射を使う", &useBlinnPhong))
 			{
 				materialData->useBlinnPhong = useBlinnPhong ? 1 : 0;
 			}
 			// 鏡面反射色（ハイライトの色）と、ライトの色
-			ImGui::ColorEdit3("Specular Color", &materialData->specularColor.x);
-			ImGui::ColorEdit3("Light Color", &directionalLightData->color.x);
+			ImGui::ColorEdit3("鏡面反射の色", &materialData->specularColor.x);
+			ImGui::ColorEdit3("平行光の色", &directionalLightData->color.x);
+			ImGui::Separator();
+			ImGui::Text("ポイントライト");
+			ImGui::ColorEdit3("ポイントライトの色", &pointLightData->color.x);
+			ImGui::DragFloat3("ポイントライトの位置", &pointLightData->position.x, 0.05f);
+			ImGui::SliderFloat("ポイントライトの明るさ", &pointLightData->intensity, 0.0f, 20.0f);
+			ImGui::SliderFloat("影響範囲", &pointLightData->radius, 0.1f, 50.0f, "%.1f");
+			ImGui::SliderFloat("ポイントライトの減衰率", &pointLightData->decay, 0.1f, 8.0f, "%.1f");
+			ImGui::Separator();
+			ImGui::Text("スポットライト");
+			ImGui::ColorEdit3("スポットライトの色", &spotLightData->color.x);
+			ImGui::DragFloat3("スポットライトの位置", &spotLightData->position.x, 0.05f);
+			ImGui::SliderFloat("スポットライトの明るさ", &spotLightData->intensity, 0.0f, 20.0f);
+			ImGui::SliderFloat("照射距離", &spotLightData->distance, 0.1f, 50.0f, "%.1f");
+			ImGui::SliderFloat("スポットライトの減衰率", &spotLightData->decay, 0.1f, 8.0f, "%.1f");
+			float spotDirection[3] = { spotLightData->direction.x, spotLightData->direction.y, spotLightData->direction.z };
+			if (ImGui::SliderFloat3("照射方向", spotDirection, -1.0f, 1.0f))
+			{
+				Vector3 direction = { spotDirection[0], spotDirection[1], spotDirection[2] };
+				if (direction.x != 0.0f || direction.y != 0.0f || direction.z != 0.0f)
+				{
+					spotLightData->direction = Vector3::Normalize(direction);
+				}
+			}
+			float spotAngle = std::acos(std::clamp(spotLightData->cosAngle, -1.0f, 1.0f));
+			if (ImGui::SliderAngle("コーンの角度", &spotAngle, 1.0f, 89.0f))
+			{
+				spotLightData->cosAngle = std::cos(spotAngle);
+			}
+			float spotConeAngleDegrees = spotAngle * (180.0f / std::numbers::pi_v<float>);
+			float spotFalloffStartAngle = std::acos(std::clamp(spotLightData->cosFalloffStart, -1.0f, 1.0f));
+			float maxFalloffStartAngle = spotConeAngleDegrees > 1.1f ? spotConeAngleDegrees - 0.1f : 1.0f;
+			if (ImGui::SliderAngle("減衰開始角度", &spotFalloffStartAngle, 1.0f, maxFalloffStartAngle))
+			{
+				spotLightData->cosFalloffStart = std::cos(spotFalloffStartAngle);
+			}
 
 			// 平行光源の向きの変更
 			float lightDirection[3] = { directionalLightData->direction.x, directionalLightData->direction.y, directionalLightData->direction.z };
-			if (ImGui::SliderFloat3("Light Direction", lightDirection, -1.0f, 1.0f))
+			if (ImGui::SliderFloat3("平行光の向き", lightDirection, -1.0f, 1.0f))
 			{
 				Vector3 dir = { lightDirection[0], lightDirection[1], lightDirection[2] };
 
@@ -1921,28 +2052,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 					directionalLightData->direction = { 0.0f, -1.0f, 0.0f }; // オール0の時は下向きにする
 				}
 			}
-			ImGui::SliderFloat("Light Intensity", &directionalLightData->intensity, 0.0f, 3.0f);
+			ImGui::SliderFloat("平行光の明るさ", &directionalLightData->intensity, 0.0f, 3.0f);
 
-			ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
-			ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
-			ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
-
-			ImGui::Separator();
-			ImGui::Text("Model Transform");
-
-			ImGui::SliderAngle("Model Rotate X", &transform.rotate.x);
-			ImGui::SliderAngle("Model Rotate Y", &transform.rotate.y);
-			ImGui::SliderAngle("Model Rotate Z", &transform.rotate.z);
+			ImGui::DragFloat2("テクスチャ位置", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
+			ImGui::DragFloat2("テクスチャ拡大率", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
+			ImGui::SliderAngle("テクスチャ回転", &uvTransformSprite.rotate.z);
 
 			ImGui::Separator();
-			ImGui::Text("Debug Camera");
-			ImGui::Text(isDebugCameraActive ? "State : ON (F1 to disable)" : "State : OFF (F1 to enable)");
-			ImGui::Checkbox("Debug Camera Active", &isDebugCameraActive);
-			ImGui::Text("Move : W/A/S/D, Up/Down : E/Q");
-			ImGui::Text("Look : Mouse");
+			ImGui::Text("モデルの変形");
+
+			ImGui::SliderAngle("X軸回転", &transform.rotate.x);
+			ImGui::SliderAngle("Y軸回転", &transform.rotate.y);
+			ImGui::SliderAngle("Z軸回転", &transform.rotate.z);
+
+			ImGui::Separator();
+			ImGui::Text("デバッグカメラ");
+			ImGui::Text(isDebugCameraActive ? "状態：有効（F1で無効化）" : "状態：無効（F1で有効化）");
+			ImGui::Checkbox("デバッグカメラを有効にする", &isDebugCameraActive);
+			ImGui::Text("移動：W/A/S/D、上下：E/Q");
+			ImGui::Text("視点操作：マウス");
 			{
 				Vector3 debugCamPos = debugCamera.GetTranslation();
-				if (ImGui::DragFloat3("Debug Cam Position", &debugCamPos.x, 0.1f))
+				if (ImGui::DragFloat3("カメラ位置", &debugCamPos.x, 0.1f))
 				{
 					debugCamera.SetTranslation(debugCamPos);
 				}
@@ -1994,6 +2125,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->World = worldMatrix;
 			// 法線用。非均一スケールでも法線が面に対して垂直のままになる
 			transformationMatrixData->WorldInverseTranspose = Transpose(Inverse(worldMatrix));
+			const Matrix4x4 terrainWorldMatrix = MakeIdentity4x4();
+			terrainTransformationData->WVP = Multiply(terrainWorldMatrix, Multiply(viewMatrix, projectionMatrix));
+			terrainTransformationData->World = terrainWorldMatrix;
+			terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
 
 			// Instancing用のTransformationMatrixを更新する
 			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
@@ -2139,11 +2274,21 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetDescriptorHeaps(1, descriptorHeaps->GetAddressOf());
 			// マテリアルCBufferの場所を設定
 			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(1, terrainWvpResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootDescriptorTable(2, terrainTextureSrvHandleGPU);
+			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
+			// カメラとPointLightの定数バッファ
+			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(5, pointLightResource->GetGPUVirtualAddress());
+			commandList->SetGraphicsRootConstantBufferView(6, spotLightResource->GetGPUVirtualAddress());
+
+			// 地形を描画する
+			commandList->IASetVertexBuffers(0, 1, &terrainVertexBufferView);
+			commandList->DrawInstanced(UINT(terrainData.vertices.size()), 1, 0, 0);
+
+			// 以降は既存モデルとモンスターボール用の変換・テクスチャに戻す
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
-			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
-			// カメラの位置の場所を設定
-			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
 
 			/////////////////// 三角形用の描画
 			//commandList->IASetVertexBuffers(0, 1, &vertexBufferView); //  球のVBVを設定
@@ -2189,7 +2334,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				assert(kNumMaxInstance <= 100); // 確保したResourceの数を超えないようにする
 
 				commandList->SetGraphicsRootSignature(particleRootSignature.Get());
-				commandList->SetPipelineState(particlePipelineStates[currentBlendMode].Get());
+				commandList->SetPipelineState(particlePipelineStates[currentParticleBlendMode].Get());
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());

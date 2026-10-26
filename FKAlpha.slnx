@@ -7,10 +7,15 @@
   </Configurations>
   <Folder Name="/ソリューション項目/">
     <File Path=".editorconfig" />
+    <File Path="README.md" />
+    <File Path="Config/BuildSettings.props" />
   </Folder>
   <Project Path="FKAlpha.vcxproj" Id="a0cce335-6d0d-48f2-976f-9927ed73672d" />
-  <Project Path="FKAlpha/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77">
-    <BuildType Solution="Development|*" Project="Release" />
-    <Build Solution="Development|*" Project="false" />
-  </Project>
+  <Folder Name="/外部ライブラリ/">
+    <Project Path="externals/DirectXTex/DirectXTex.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77" />
+    <Project Path="externals/imgui/imgui.vcxproj" Id="c84755b6-9685-49fa-b1b1-86376a8674a9">
+      <Build Solution="Development|*" Project="false" />
+      <Build Solution="Release|*" Project="false" />
+    </Project>
+  </Folder>
 </Solution>

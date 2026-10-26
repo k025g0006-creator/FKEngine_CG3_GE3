@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Headers">
+      <UniqueIdentifier>{bd316754-796d-4d4c-9d3a-fd692c4ecb54}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{cc9898b6-7402-488e-8226-20378cef5d51}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source">
+      <UniqueIdentifier>{fec79c9c-3f41-48df-841b-9cdc3fe43aa5}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Shaders\BC6HEncode.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\BC7Encode.hlsl">
+      <Filter>Shaders</Filter>
+    </None>
+    <CLInclude Include="BC.h">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <ClCompile Include="BC.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="BC4BC5.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="BC6HBC7.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClInclude Include="BCDirectCompute.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="d3dx12.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <CLInclude Include="DDS.h">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <ClInclude Include="filters.h">
+      <Filter>Headers</Filter>
+    </ClInclude>
+    <CLInclude Include="scoped.h">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <CLInclude Include="DirectXTex.h">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <CLInclude Include="DirectXTexP.h">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <CLInclude Include="DirectXTex.inl">
+      <Filter>Headers</Filter>
+    </CLInclude>
+    <ClCompile Include="BCDirectCompute.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexCompress.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexCompressGPU.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexConvert.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexD3D11.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexD3D12.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexDDS.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexFlipRotate.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexHDR.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexImage.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexMipMaps.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexMisc.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexNormalMaps.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexPMAlpha.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexResize.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexTGA.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexUtil.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="DirectXTexWIC.cpp">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <None Include="Shaders\CompileShaders.cmd">
+      <Filter>Shaders</Filter>
+    </None>
+  </ItemGroup>
+</Project>

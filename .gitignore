@@ -366,4 +366,9 @@ DirectXGame/imgui.ini
 
 *.obj
 
-!resources/**/*.obj
+![Rr]esources/**/*.obj
+!Archive/**/[Rr]esources/**/*.obj
+
+# Generated outputs are kept outside Source/ and externals/.
+/Build/
+/Archive/NuGetCache/

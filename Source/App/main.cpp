@@ -22,9 +22,9 @@
 #pragma comment(lib,"xaudio2.lib")
 
 #ifdef USE_IMGUI
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+#include "imgui.h"
+#include "imgui_impl_dx12.h"
+#include "imgui_impl_win32.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
 #endif
 
@@ -201,6 +201,12 @@ BYTE key[256] = {};
 
 BYTE keyPre[256] = {};
 
+static std::filesystem::path GetExecutableDirectory()
+{
+	wchar_t executablePath[MAX_PATH] = {};
+	GetModuleFileNameW(nullptr, executablePath, MAX_PATH);
+	return std::filesystem::path(executablePath).parent_path();
+}
 
 static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 {
@@ -208,9 +214,11 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 	SYSTEMTIME time;
 	GetLocalTime(&time);
 	wchar_t filePath[MAX_PATH] = { 0 };
-	CreateDirectory(L"./Dumps", nullptr);
-	StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d-%02d%02d-%02d%02d.dmp", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute);
-	HANDLE dumpFileHandle = CreateFile(filePath, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+	const std::filesystem::path dumpDirectory = GetExecutableDirectory() / "Dumps";
+	std::filesystem::create_directories(dumpDirectory);
+	StringCchPrintfW(filePath, MAX_PATH, L"%04d-%02d%02d-%02d%02d.dmp", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute);
+	const std::filesystem::path dumpFilePath = dumpDirectory / filePath;
+	HANDLE dumpFileHandle = CreateFileW(dumpFilePath.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
 
 	// processId(このexeのId)とクラッシュ(例外)の発生したthreadIdを取得
 	DWORD processId = GetCurrentProcessId();
@@ -408,7 +416,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	SetUnhandledExceptionFilter(ExportDump);
 
 	// ログのディレクトリを用意
-	std::filesystem::create_directory("logs");
+	const std::filesystem::path logDirectory = GetExecutableDirectory() / "Logs";
+	std::filesystem::create_directories(logDirectory);
 
 	// 現在時刻を取得
 	std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
@@ -424,7 +433,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	std::string dateString = std::format("{:%Y%m%d_%H%M%S}", localTime);
 
 	// 時刻を使ってファイル名を決定
-	std::string logFilePath = std::format("logs/") + dateString + ".log";
+	std::filesystem::path logFilePath = logDirectory / (dateString + ".log");
 
 	// ファイルを作って書き込み準備
 	std::ofstream logStream(logFilePath);
@@ -473,7 +482,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		srvDescriptorHeap.Get(),
 		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0),
 		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
-	ImGuiIO io = ImGui::GetIO();
+	ImGuiIO& io = ImGui::GetIO();
+	const std::u8string imguiIniPathUtf8 = (GetExecutableDirectory() / "Config/imgui.ini").u8string();
+	const std::string imguiIniPath(imguiIniPathUtf8.begin(), imguiIniPathUtf8.end());
+	io.IniFilename = imguiIniPath.c_str();
 	io.Fonts->Build();
 #endif
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
@@ -573,10 +585,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
 
 	// Shaderをコンパイルする
-	Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = directXBase->CompileShader(L"Object3d.VS.hlsl", L"vs_6_0");
+	Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Object3d.VS.hlsl", L"vs_6_0");
 	assert(vertexShaderBlob != nullptr);
 
-	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = directXBase->CompileShader(L"Object3d.PS.hlsl", L"ps_6_0");
+	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Object3d.PS.hlsl", L"ps_6_0");
 	assert(pixelShaderBlob != nullptr);
 
 	// DepthStencilStateの設定
@@ -682,10 +694,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 	// Particle用のShaderをコンパイルする
-	Microsoft::WRL::ComPtr<IDxcBlob> particleVertexShaderBlob = directXBase->CompileShader(L"Particle.VS.hlsl", L"vs_6_0");
+	Microsoft::WRL::ComPtr<IDxcBlob> particleVertexShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Particle.VS.hlsl", L"vs_6_0");
 	assert(particleVertexShaderBlob != nullptr);
 
-	Microsoft::WRL::ComPtr<IDxcBlob> particlePixelShaderBlob = directXBase->CompileShader(L"Particle.PS.hlsl", L"ps_6_0");
+	Microsoft::WRL::ComPtr<IDxcBlob> particlePixelShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Particle.PS.hlsl", L"ps_6_0");
 	assert(particlePixelShaderBlob != nullptr);
 
 	// Particle用のPSO（Object3d用の設定をコピーして、RootSignatureとShaderだけ差し替える）

@@ -3,10 +3,11 @@
 #include <cassert>
 #include <chrono>
 #include <format>
+#include <filesystem>
 #include <thread>
 #include <vector>
 
-#include "externals/DirectXTex/d3dx12.h"
+#include "d3dx12.h"
 #include "StringUtility.h"
 
 #pragma comment(lib, "dxcompiler.lib")
@@ -26,9 +27,11 @@ ComPtr<IDxcBlob> DirectXBase::CompileShader(const std::wstring& filePath, const 
 	shaderSourceBuffer.Size = shaderSource->GetBufferSize();
 	shaderSourceBuffer.Encoding = DXC_CP_UTF8;
 
+	const std::wstring shaderDirectory = std::filesystem::path(filePath).parent_path().wstring();
 	LPCWSTR arguments[] =
 	{
 		filePath.c_str(), L"-E", L"main", L"-T", profile,
+		L"-I", shaderDirectory.c_str(),
 		L"-Zi", L"-Qembed_debug", L"-Od", L"-Zpr",
 	};
 

@@ -372,3 +372,6 @@ DirectXGame/imgui.ini
 # Generated outputs are kept outside Source/ and externals/.
 /Build/
 /Archive/NuGetCache/
+
+# Shared seed; running applications save their own copy beside the executable.
+!/Config/imgui.ini

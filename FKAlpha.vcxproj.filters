@@ -150,6 +150,15 @@
     <None Include="Resources\fence.png">
       <Filter>Resources</Filter>
     </None>
+    <None Include="Resources\grass.png">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Resources\terrain.mtl">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Resources\terrain.obj">
+      <Filter>Resources</Filter>
+    </None>
     <None Include="Resources\monsterBall.png">
       <Filter>Resources</Filter>
     </None>

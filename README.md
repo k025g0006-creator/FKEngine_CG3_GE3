@@ -75,3 +75,29 @@ mainを動作確認済みの共通版として使います。GE3のクラス化�
 ```
 
 バッジの表示方法は[GitHub公式ドキュメント](https://docs.github.com/en/actions/how-tos/monitor-workflows/add-a-status-badge)に従っています。初回の実行が完了するまでは、バッジに結果が表示されないことがあります。
+
+## 不要なファイルの検査
+
+| ブランチ | 不要ファイル検査 |
+| --- | --- |
+| GE3 | [![Repository file check](https://github.com/k025g0006-creator/FKEngine_CG3_GE3/actions/workflows/check-repository-files.yml/badge.svg?branch=GE3&event=push)](https://github.com/k025g0006-creator/FKEngine_CG3_GE3/actions/workflows/check-repository-files.yml?query=branch%3AGE3) |
+| main | [![Repository file check](https://github.com/k025g0006-creator/FKEngine_CG3_GE3/actions/workflows/check-repository-files.yml/badge.svg?branch=main&event=push)](https://github.com/k025g0006-creator/FKEngine_CG3_GE3/actions/workflows/check-repository-files.yml?query=branch%3Amain) |
+
+`main`・`GE3`へのpushと、`main`向けのプルリクエストで、Gitの管理対象に不要なファイルが混ざっていないか確認します。mainのバッジは、この設定をmainへマージして実行した後に結果が表示されます。
+
+- `.pdb`・`.obj`などのビルド生成物、実行ファイル、DLL、個人用のVisual Studio設定を検出します。
+- `Build`・`x64`・`.vs`・`logs`・NuGetキャッシュなどの出力フォルダも検出します。
+- `.gitignore`で除外されているのに、すでにGitで追跡されているファイルも検出します。
+- `Resources`内のモデル用`.obj`は許可します。ImGui同梱の4本のGLFWライブラリは`Config/RepositoryFilePolicy.json`に理由付きで登録しています。`Source/Engine/Debug`はソースフォルダなので許可します。
+
+手元で確認する場合は、リポジトリのルートで次を実行します。
+
+```powershell
+./Tools/Check-RepositoryFiles.ps1
+```
+
+不要な生成物を誤ってGitに追加していた場合は、`.gitignore`へ登録したうえで、対象を`git rm --cached -- 対象のパス`でGitの管理から外してコミットします。`--cached`を指定すると、手元のファイルは残ります。必要なモデル・画像・外部ライブラリは削除せず、生成物との違いを確認してください。
+
+検査はファイルを変更・削除せず、見つけたパスと理由を表示して失敗します。GitHubの実行ページのArtifactsからJSON形式の検査結果を取得できます。検出ルールの動作確認も、使い捨てのGitリポジトリで自動実行します。
+
+Gitの除外規則と追跡済みファイルの確認には、[git ls-filesの公式仕様](https://git-scm.com/docs/git-ls-files)を使っています。

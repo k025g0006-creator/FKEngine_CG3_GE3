@@ -1,0 +1,45 @@
+name: Repository file check
+
+on:
+  push:
+    branches: [main, GE3]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-files:
+    name: 不要なファイルを検索
+    runs-on: windows-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: 検出ルールの動作を確認
+        run: ./Tools/Tests/Check-RepositoryFiles.Tests.ps1 -TemporaryRoot $env:RUNNER_TEMP
+
+      - name: 不要な追跡ファイルを検出
+        run: |
+          ./Tools/Check-RepositoryFiles.ps1 -ReportPath (Join-Path $env:RUNNER_TEMP 'repository-file-report.json')
+
+      - name: 検査結果を保存
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: repository-file-report
+          path: ${{ runner.temp }}/repository-file-report.json
+          if-no-files-found: warn
+          retention-days: 7

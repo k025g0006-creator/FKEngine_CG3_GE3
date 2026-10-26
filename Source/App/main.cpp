@@ -141,6 +141,13 @@ struct CameraForGPU
 	float padding; // 定数バッファは16byte単位で読まれるので、float3だけだと範囲外を読んでしまう。16byteに揃える
 };
 
+// CPU側の配置がシェーダーの定数バッファ定義と一致していることを確認する。
+static_assert(sizeof(TransformationMatrix) == 192);
+static_assert(sizeof(Material) == 128);
+static_assert(sizeof(PointLight) == 48);
+static_assert(sizeof(SpotLight) == 64);
+static_assert(sizeof(CameraForGPU) == 16);
+
 
 struct ModelData
 {
@@ -250,10 +257,6 @@ D3D12_BLEND_DESC CreateBlendDesc(BlendMode mode)
 	}
 	return desc;
 }
-
-BYTE key[256] = {};
-
-BYTE keyPre[256] = {};
 
 static std::filesystem::path GetExecutableDirectory()
 {
@@ -456,8 +459,6 @@ Particle MakeNewParticle(std::mt19937& randomEngine, const Vector3& translate)
 	return particle;
 }
 
-<<<<<<< HEAD:Source/App/main.cpp
-=======
 // Emitterの設定どおりにParticleを発生させる
 std::list<Particle> Emit(const Emitter& emitter, std::mt19937& randomEngine)
 {
@@ -469,39 +470,12 @@ std::list<Particle> Emit(const Emitter& emitter, std::mt19937& randomEngine)
 	return particles;
 }
 
-// ---------------------------------------------
-// トリガー処理
-// ---------------------------------------------
-
-// キーを押した状態か
-bool PushKey(uint8_t keyNumber)
-{
-	return key[keyNumber] != 0;
-}
-
-// キーを離した状態か
-bool ReleaseKey(uint8_t keyNumber)
-{
-	return key[keyNumber] == 0;
-}
-
-// キーを押した瞬間か
-bool TriggerKey(uint8_t keyNumber)
-{
-	return key[keyNumber] != 0 && keyPre[keyNumber] == 0;
-}
-
-// キーを離した瞬間か
-bool ReleaseTriggerKey(uint8_t keyNumber)
-{
-	return key[keyNumber] == 0 && keyPre[keyNumber] != 0;
-}
-
-
->>>>>>> CG3:main.cpp
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPSTR lpCmdLine, _In_ int nCmdShow)
 {
+	// 統合確認用に3フレーム描画したら、通常の終了処理で終了する。
+	const bool smokeTest = std::string(lpCmdLine).find("--smoke-test") != std::string::npos;
+	uint32_t smokeTestFrames = 0;
 	D3DResourceLeakChecker leakCheck;
 
 	ComPtr<IXAudio2> xAudio2;
@@ -583,13 +557,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		srvDescriptorHeap.Get(),
 		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0),
 		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
-<<<<<<< HEAD:Source/App/main.cpp
-	ImGuiIO& io = ImGui::GetIO();
 	const std::u8string imguiIniPathUtf8 = (GetExecutableDirectory() / "Config/imgui.ini").u8string();
 	const std::string imguiIniPath(imguiIniPathUtf8.begin(), imguiIniPathUtf8.end());
 	io.IniFilename = imguiIniPath.c_str();
-=======
->>>>>>> CG3:main.cpp
 	io.Fonts->Build();
 #endif
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
@@ -856,8 +826,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	vertexResourceModel->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataModel));
 	std::memcpy(vertexDataModel, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size()); // 頂点データをリソースにコピー
 
-	ComPtr<ID3D12Resource> terrainVertexResource = CreateBufferResource(
-		device.Get(), sizeof(VertexData) * terrainData.vertices.size());
+	ComPtr<ID3D12Resource> terrainVertexResource = directXBase->CreateBufferResource(
+		sizeof(VertexData) * terrainData.vertices.size());
 	D3D12_VERTEX_BUFFER_VIEW terrainVertexBufferView{};
 	terrainVertexBufferView.BufferLocation = terrainVertexResource->GetGPUVirtualAddress();
 	terrainVertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * terrainData.vertices.size());
@@ -913,12 +883,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-<<<<<<< HEAD:Source/App/main.cpp
 	ComPtr<ID3D12Resource> wvpResource = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
-=======
-	ComPtr<ID3D12Resource> wvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
-	ComPtr<ID3D12Resource> terrainWvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
->>>>>>> CG3:main.cpp
+	ComPtr<ID3D12Resource> terrainWvpResource = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
 
 	// データを書き込む
 	Matrix4x4* wvpData = nullptr;
@@ -943,20 +909,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	FKEngine::Particle transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
 
 	// Sprite用のtransformationMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-<<<<<<< HEAD:Source/App/main.cpp
-	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = directXBase->CreateBufferResource(sizeof(Matrix4x4) * 2);
-=======
-	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
->>>>>>> CG3:main.cpp
+	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
 
 	// データを書き込む
-	Matrix4x4* transformationMatrixDataSprite = nullptr;
+	TransformationMatrix* transformationMatrixDataSprite = nullptr;
 
 	// 書き込むためのアドレスを取得
 	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
 
 	// 単位行列を書き込んでおく
-	*transformationMatrixDataSprite = MakeIdentity4x4();
+	transformationMatrixDataSprite->WVP = MakeIdentity4x4();
+	transformationMatrixDataSprite->World = MakeIdentity4x4();
+	transformationMatrixDataSprite->WorldInverseTranspose = MakeIdentity4x4();
 
 	ComPtr<ID3D12Resource> indexResourceSprite = directXBase->CreateBufferResource(sizeof(uint32_t) * 6);
 
@@ -1019,7 +983,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	directionalLightData->direction = { 0.0f, -1.0f, 1.0f };     // 斜め下・手前方向へ進む光
 	directionalLightData->intensity = 0.0f;
 
-	ComPtr<ID3D12Resource> pointLightResource = CreateBufferResource(device.Get(), sizeof(PointLight));
+	ComPtr<ID3D12Resource> pointLightResource = directXBase->CreateBufferResource(sizeof(PointLight));
 	PointLight* pointLightData = nullptr;
 	hr = pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData));
 	assert(SUCCEEDED(hr));
@@ -1031,7 +995,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	pointLightData->padding[0] = 0.0f;
 	pointLightData->padding[1] = 0.0f;
 
-	ComPtr<ID3D12Resource> spotLightResource = CreateBufferResource(device.Get(), sizeof(SpotLight));
+	ComPtr<ID3D12Resource> spotLightResource = directXBase->CreateBufferResource(sizeof(SpotLight));
 	SpotLight* spotLightData = nullptr;
 	hr = spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData));
 	assert(SUCCEEDED(hr));
@@ -1047,7 +1011,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	spotLightData->padding[0] = 0.0f;
 
 	// カメラのワールド位置を送るためのResource。Mapしたままにして、毎フレーム書き換える
-	ComPtr<ID3D12Resource> cameraResource = CreateBufferResource(device.Get(), sizeof(CameraForGPU));
+	ComPtr<ID3D12Resource> cameraResource = directXBase->CreateBufferResource(sizeof(CameraForGPU));
 	CameraForGPU* cameraData = nullptr;
 	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 	cameraData->worldPosition = { 0.0f, 0.0f, 0.0f };
@@ -1207,17 +1171,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ComPtr<ID3D12Resource> intermediateResource3 = directXBase->UploadTextureData(textureResource3, mipImages3);
 
 	// Particle(球)用のTexture(monsterBall.png)
-	DirectX::ScratchImage mipImages4 = LoadTexture("resources/monsterBall.png");
+	DirectX::ScratchImage mipImages4 = DirectXBase::LoadTexture("Resources/monsterBall.png");
 	const DirectX::TexMetadata& metadata4 = mipImages4.GetMetadata();
-	ComPtr<ID3D12Resource> textureResource4 = CreateTextureResource(device.Get(), metadata4);
-	ComPtr<ID3D12Resource> intermediateResource4 = UploadTextureData(textureResource4.Get(), mipImages4, device.Get(), commandList.Get());
+	ComPtr<ID3D12Resource> textureResource4 = directXBase->CreateTextureResource(metadata4);
+	ComPtr<ID3D12Resource> intermediateResource4 = directXBase->UploadTextureData(textureResource4, mipImages4);
 
 	// terrain.mtl の map_Kd で指定された草テクスチャ
-	DirectX::ScratchImage terrainMipImages = LoadTexture(terrainData.material.textureFilePath);
+	DirectX::ScratchImage terrainMipImages = DirectXBase::LoadTexture(terrainData.material.textureFilePath);
 	const DirectX::TexMetadata& terrainMetadata = terrainMipImages.GetMetadata();
-	ComPtr<ID3D12Resource> terrainTextureResource = CreateTextureResource(device.Get(), terrainMetadata);
-	ComPtr<ID3D12Resource> terrainTextureUploadResource = UploadTextureData(
-		terrainTextureResource.Get(), terrainMipImages, device.Get(), commandList.Get());
+	ComPtr<ID3D12Resource> terrainTextureResource = directXBase->CreateTextureResource(terrainMetadata);
+	ComPtr<ID3D12Resource> terrainTextureUploadResource = directXBase->UploadTextureData(
+		terrainTextureResource, terrainMipImages);
 
 
 	// DirectInputの初期化
@@ -1377,7 +1341,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	sound1.Load("Resources/Alarm01.wav");
 
 	// 音声再生
-	sound1.Play(xAudio2.Get());
+	if (!smokeTest)
+	{
+		sound1.Play(xAudio2.Get());
+	}
 
 	while (true)
 	{
@@ -1509,11 +1476,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			float spotConeAngleDegrees = spotAngle * (180.0f / std::numbers::pi_v<float>);
 			float spotFalloffStartAngle = std::acos(std::clamp(spotLightData->cosFalloffStart, -1.0f, 1.0f));
-			float maxFalloffStartAngle = spotConeAngleDegrees > 1.1f ? spotConeAngleDegrees - 0.1f : 1.0f;
-			if (ImGui::SliderAngle("減衰開始角度", &spotFalloffStartAngle, 1.0f, maxFalloffStartAngle))
-			{
-				spotLightData->cosFalloffStart = std::cos(spotFalloffStartAngle);
-			}
+			float maxFalloffStartAngle = spotConeAngleDegrees - 0.1f;
+			spotFalloffStartAngle = std::clamp(spotFalloffStartAngle, 0.0f,
+				maxFalloffStartAngle * std::numbers::pi_v<float> / 180.0f);
+			ImGui::SliderAngle("減衰開始角度", &spotFalloffStartAngle, 0.0f, maxFalloffStartAngle);
+			spotLightData->cosFalloffStart = std::cos(spotFalloffStartAngle);
 
 			// 平行光源の向きの変更
 			float lightDirection[3] = { directionalLightData->direction.x, directionalLightData->direction.y, directionalLightData->direction.z };
@@ -1685,7 +1652,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				++particleIterator; // 次のイテレータに進める
 			}
 
-			*transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+			transformationMatrixDataSprite->WVP = worldViewProjectionMatrixSprite;
+			transformationMatrixDataSprite->World = worldMatrixSprite;
+			transformationMatrixDataSprite->WorldInverseTranspose = Transpose(Inverse(worldMatrixSprite));
 
 			// UVTransform用の行列
 			Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
@@ -1804,6 +1773,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 			directXBase->PostDraw();
+			if (smokeTest && ++smokeTestFrames == 3)
+			{
+				Logger::Log(logStream, "Smoke test completed: 3 frames rendered.");
+				break;
+			}
 		}
 	}
 

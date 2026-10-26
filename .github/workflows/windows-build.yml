@@ -1,0 +1,48 @@
+name: Windows build (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      configuration:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ inputs.configuration }} x64
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out tracked files
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build C++, compile shaders and verify resources
+        env:
+          CONFIGURATION: ${{ inputs.configuration }}
+        run: |
+          ./Tools/Build-CI.ps1 -Configuration $env:CONFIGURATION -OutputRoot (Join-Path $env:RUNNER_TEMP 'FKEngine_Build')
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-logs-${{ inputs.configuration }}
+          path: ${{ runner.temp }}/FKEngine_Build/Logs
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload executable and resources
+        uses: actions/upload-artifact@v7
+        with:
+          name: FKAlpha-${{ inputs.configuration }}-x64
+          path: ${{ runner.temp }}/FKEngine_Build/Bin/x64/${{ inputs.configuration }}
+          if-no-files-found: error
+          retention-days: 7

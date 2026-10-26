@@ -205,6 +205,9 @@
     <None Include="Resources\fence.mtl" />
     <None Include="Resources\fence.obj" />
     <None Include="Resources\fence.png" />
+    <None Include="Resources\grass.png" />
+    <None Include="Resources\terrain.mtl" />
+    <None Include="Resources\terrain.obj" />
     <None Include="Resources\monsterBall.png" />
     <None Include="Resources\multiMaterial.blend" />
     <None Include="Resources\multiMaterial.mtl" />

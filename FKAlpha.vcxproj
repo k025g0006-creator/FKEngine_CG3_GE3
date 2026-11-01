@@ -134,6 +134,8 @@
   <ItemGroup>
     <ClCompile Include="Source\Engine\Debug\DebugCamera.cpp" />
     <ClCompile Include="Source\Engine\Graphics\DirectXBase.cpp" />
+    <ClCompile Include="Source\Engine\Graphics\SpriteBase.cpp" />
+    <ClCompile Include="Source\Engine\Graphics\Sprite.cpp" />
     <ClCompile Include="Source\Engine\Debug\D3DResourceLeakChecker.cpp" />
     <ClCompile Include="Source\Engine\Input\Input.cpp" />
     <ClCompile Include="Source\Engine\Core\Logger.cpp" />
@@ -160,6 +162,12 @@
       <ShaderType Condition="'$(Configuration)|$(Platform)'=='Development|x64'">Vertex</ShaderType>
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </FxCompile>
+    <FxCompile Include="Resources\Shaders\Sprite.VS.hlsl">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </FxCompile>
+    <FxCompile Include="Resources\Shaders\Sprite.PS.hlsl">
+      <ExcludedFromBuild>true</ExcludedFromBuild>
+    </FxCompile>
     <FxCompile Include="Resources\Shaders\Particle.PS.hlsl">
       <ExcludedFromBuild>true</ExcludedFromBuild>
     </FxCompile>
@@ -170,6 +178,8 @@
   <ItemGroup>
     <ClInclude Include="Source\Engine\Debug\DebugCamera.h" />
     <ClInclude Include="Source\Engine\Graphics\DirectXBase.h" />
+    <ClInclude Include="Source\Engine\Graphics\SpriteBase.h" />
+    <ClInclude Include="Source\Engine\Graphics\Sprite.h" />
     <ClInclude Include="Source\Engine\Debug\D3DResourceLeakChecker.h" />
     <ClInclude Include="Source\Engine\Input\Input.h" />
     <ClInclude Include="Source\Engine\Core\Logger.h" />
@@ -184,6 +194,7 @@
   <ItemGroup>
     <None Include="Resources\Shaders\Object3d.hlsli" />
     <None Include="Resources\Shaders\Particle.hlsli" />
+    <None Include="Resources\Shaders\Sprite.hlsli" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup>
@@ -234,4 +245,18 @@
     <Copy SourceFiles="@(RuntimeShaderDlls)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
     <Copy SourceFiles="$(ProjectDir)Config\imgui.ini" DestinationFolder="$(OutDir)Config" SkipUnchangedFiles="true" Condition="Exists('$(ProjectDir)Config\imgui.ini')" />
   </Target>
+  <ItemGroup>
+    <ClCompile Include="Source\Engine\Math\Vector2.cpp" />
+    <ClCompile Include="Source\Engine\Math\Vector3.cpp" />
+    <ClInclude Include="Source\Engine\Math\Vector2.h" />
+    <ClInclude Include="Source\Engine\Math\Vector3.h" />
+    <ClInclude Include="Source\Engine\Math\Vector4.h" />
+    <ClInclude Include="Source\Engine\Math\Transform.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Engine\Graphics\TextureManager.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\Engine\Graphics\TextureManager.h" />
+  </ItemGroup>
 </Project>

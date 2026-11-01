@@ -1,65 +1,13 @@
 #include "Matrix4x4.h"
 #include <cmath>
 
+namespace Math
+{
 bool IsCollision(const AABB& aabb, const Vector3& point)
 {
     return (aabb.min.x <= point.x && point.x <= aabb.max.x) &&
         (aabb.min.y <= point.y && point.y <= aabb.max.y) &&
         (aabb.min.z <= point.z && point.z <= aabb.max.z);
-}
-
-Vector2::Vector2() : x(0.0f), y(0.0f)
-{
-
-}
-
-Vector2::Vector2(float x, float y) : x(x), y(y)
-{
-
-}
-
-Vector3::Vector3() : x(0.0f), y(0.0f), z(0.0f)
-{
-
-}
-Vector3::Vector3(float x, float y, float z) : x(x), y(y), z(z)
-{
-
-}
-
-Vector3 Vector3::Add(const Vector3& v1, const Vector3& v2)
-{
-    return { v1.x + v2.x, v1.y + v2.y, v1.z + v2.z };
-}
-
-Vector3 Vector3::Subtract(const Vector3& v1, const Vector3& v2)
-{
-    return { v1.x - v2.x, v1.y - v2.y, v1.z - v2.z };
-}
-
-Vector3 Vector3::Multiply(float scalar, const Vector3& v)
-{
-    return { scalar * v.x, scalar * v.y, scalar * v.z };
-}
-
-float Vector3::Dot(const Vector3& v1, const Vector3& v2)
-{
-    return (v1.x * v2.x) + (v1.y * v2.y) + (v1.z * v2.z);
-}
-
-float Vector3::Length(const Vector3& v)
-{
-    return sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-}
-
-Vector3 Vector3::Normalize(const Vector3& v)
-{
-    float length = Length(v);
-    if (length != 0.0f)
-    {
-        return { v.x / length, v.y / length, v.z / length };
-    }
-    return { 0.0f, 0.0f, 0.0f };
 }
 
 // 平行移動行列の作成
@@ -221,18 +169,6 @@ Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2)
     return result;
 }
 
-// 積
-Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2)
-{
-    return Multiply(m1, m2);
-}
-
-Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2)
-{
-    m1 = Multiply(m1, m2);
-    return m1;
-}
-
 Matrix4x4 Transpose(const Matrix4x4& m)
 {
     Matrix4x4 result;
@@ -298,4 +234,18 @@ Matrix4x4 Inverse(const Matrix4x4& m)
     result.m[3][3] = (m.m[0][0] * m.m[1][1] * m.m[2][2] + m.m[0][1] * m.m[1][2] * m.m[2][0] + m.m[0][2] * m.m[1][0] * m.m[2][1] - m.m[0][2] * m.m[1][1] * m.m[2][0] - m.m[0][1] * m.m[1][0] * m.m[2][2] - m.m[0][0] * m.m[1][2] * m.m[2][1]) * detRecp;
 
     return result;
+}
+
+} // namespace Math
+
+// 積
+Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2)
+{
+    return Math::Multiply(m1, m2);
+}
+
+Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2)
+{
+    m1 = Math::Multiply(m1, m2);
+    return m1;
 }

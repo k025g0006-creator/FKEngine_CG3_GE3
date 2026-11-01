@@ -5,16 +5,16 @@ void DebugCamera::Initialize(uint32_t clientWidth, uint32_t clientHeight)
 {
 	// カメラの初期姿勢
 	translation_ = { 0.0f, 0.0f, -50.0f };
-	matRot_ = MakeIdentity4x4();
+	matRot_ = Math::MakeIdentity4x4();
 
 	// 射影行列の作成
 	float aspectRatio = static_cast<float>(clientWidth) / static_cast<float>(clientHeight);
-	projectionMatrix_ = MakePerspectiveFovMatrix(0.45f, aspectRatio, 0.1f, 100.0f);
+	projectionMatrix_ = Math::MakePerspectiveFovMatrix(0.45f, aspectRatio, 0.1f, 100.0f);
 
 	// ビュー行列の初期化
-	Matrix4x4 translateMatrix = MakeTranslateMatrix(translation_);
-	Matrix4x4 worldMatrix = Multiply(matRot_, translateMatrix);
-	viewMatrix_ = Inverse(worldMatrix);
+	Matrix4x4 translateMatrix = Math::MakeTranslateMatrix(translation_);
+	Matrix4x4 worldMatrix = Math::Multiply(matRot_, translateMatrix);
+	viewMatrix_ = Math::Inverse(worldMatrix);
 }
 
 void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLeftMouseDown)
@@ -78,10 +78,10 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 	// 累積回転行列に乗算して合成する。
 
 	// 追加回転分の回転行列を生成
-	Matrix4x4 matRotDelta = MakeIdentity4x4();
-	matRotDelta *= MakeRotateXMatrix(rotDeltaX);
-	matRotDelta *= MakeRotateYMatrix(rotDeltaY);
-	matRotDelta *= MakeRotateZMatrix(rotDeltaZ);
+	Matrix4x4 matRotDelta = Math::MakeIdentity4x4();
+	matRotDelta *= Math::MakeRotateXMatrix(rotDeltaX);
+	matRotDelta *= Math::MakeRotateYMatrix(rotDeltaY);
+	matRotDelta *= Math::MakeRotateZMatrix(rotDeltaZ);
 
 	// 累積の回転行列を合成
 	matRot_ = matRotDelta * matRot_;
@@ -93,7 +93,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = moveSpeed_;                  // 前進の速さ
 		Vector3 move = { 0.0f, 0.0f, speed };            // カメラ移動ベクトル
 
-		move = Transform(move, matRot_);                 // 移動ベクトルを現在の姿勢分だけ回転させる
+		move = Math::Transform(move, matRot_);                 // 移動ベクトルを現在の姿勢分だけ回転させる
 
 		translation_ = Vector3::Add(translation_, move); // 移動ベクトル分だけ座標を加算する
 	}
@@ -102,7 +102,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = -moveSpeed_;
 		Vector3 move = { 0.0f, 0.0f, speed };
 
-		move = Transform(move, matRot_);
+		move = Math::Transform(move, matRot_);
 
 		translation_ = Vector3::Add(translation_, move);
 	}
@@ -113,7 +113,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = moveSpeed_;                  // 右移動の速さ
 		Vector3 move = { speed, 0.0f, 0.0f };            // カメラ移動ベクトル
 
-		move = Transform(move, matRot_);                 // 移動ベクトルを現在の姿勢分だけ回転させる
+		move = Math::Transform(move, matRot_);                 // 移動ベクトルを現在の姿勢分だけ回転させる
 
 		translation_ = Vector3::Add(translation_, move); // 移動ベクトル分だけ座標を加算する
 	}
@@ -122,7 +122,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = -moveSpeed_;
 		Vector3 move = { speed, 0.0f, 0.0f };
 
-		move = Transform(move, matRot_);
+		move = Math::Transform(move, matRot_);
 
 		translation_ = Vector3::Add(translation_, move);
 	}
@@ -133,7 +133,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = moveSpeed_;                   // 上移動の速さ
 		Vector3 move = { 0.0f, speed, 0.0f };             // カメラ移動ベクトル
 
-		move = Transform(move, matRot_);                  // 移動ベクトルを現在の姿勢分だけ回転させる
+		move = Math::Transform(move, matRot_);                  // 移動ベクトルを現在の姿勢分だけ回転させる
 
 		translation_ = Vector3::Add(translation_, move);  // 移動ベクトル分だけ座標を加算する
 	}
@@ -142,7 +142,7 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		const float speed = -moveSpeed_;
 		Vector3 move = { 0.0f, speed, 0.0f };
 
-		move = Transform(move, matRot_);
+		move = Math::Transform(move, matRot_);
 
 		translation_ = Vector3::Add(translation_, move);
 	}
@@ -155,11 +155,11 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 
 
 	// 座標から平行移動行列を計算する
-	Matrix4x4 translateMatrix = MakeTranslateMatrix(translation_);
+	Matrix4x4 translateMatrix = Math::MakeTranslateMatrix(translation_);
 
 	// 回転行列と平行移動行列からワールド行列を計算する
 	Matrix4x4 worldMatrix = matRot_ * translateMatrix;
 
 	// ワールド行列の逆行列をビュー行列に代入する
-	viewMatrix_ = Inverse(worldMatrix);
+	viewMatrix_ = Math::Inverse(worldMatrix);
 }

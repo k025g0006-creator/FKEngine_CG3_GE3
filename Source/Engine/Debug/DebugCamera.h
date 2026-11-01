@@ -38,7 +38,7 @@ private:
 	Matrix4x4 projectionMatrix_{};
 
 	// 累積回転行列
-	Matrix4x4 matRot_ = MakeIdentity4x4();
+	Matrix4x4 matRot_ = Math::MakeIdentity4x4();
 
 	// 移動速度
 	float moveSpeed_ = 0.2f;

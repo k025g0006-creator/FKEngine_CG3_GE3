@@ -37,6 +37,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #endif
 
 #include <DirectXTex.h>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
+#include <assimp/postprocess.h>
+#include <stdexcept>
 
 #include "externals/DirectXTex/d3dx12.h"
 #include "Matrix4x4.h"
@@ -105,6 +109,7 @@ struct Material
 struct MaterialData
 {
 	std::string textureFilePath;
+	bool doubleSided = false;
 };
 
 struct DirectionalLight
@@ -145,10 +150,17 @@ struct CameraForGPU
 };
 
 
+struct Node
+{
+	Matrix4x4 localMatrix = MakeIdentity4x4();
+	std::string name;
+	std::vector<Node> children;
+};
 struct ModelData
 {
 	std::vector<VertexData> vertices;
 	MaterialData material;
+	Node rootNode;
 };
 
 struct Particle
@@ -183,8 +195,8 @@ struct ParticleGPU
 	Vector4 color;
 };
 
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
+Node ReadNode(const aiNode* node);
+ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename);
 
 // ---------------------------------------------
 // BlendMode
@@ -580,133 +592,94 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	return handleGPU;
 }
 
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename)
+Node ReadNode(const aiNode* node)
 {
-	// 1. 中で必要となる変数の宣言
-	MaterialData materialData; // 構築するMaterialData
-	std::string line; //ファイルから読んだ1行を格納するもの
-
-	// 2. ファイルを開く
-	std::ifstream file(directoryPath + "/" + filename); // ファイルを開く
-	assert(file.is_open()); // 開けなかったら止める
-
-	// 3. 実際にファイルを読み、MaterialDataを構築していく
-	while (std::getline(file, line))
-	{
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-
-		// identifierに応じた処理
-		if (identifier == "map_Kd")
-		{
-			std::string textureFilename;
-			s >> textureFilename;
-			// 連結してファイルパスにする
-			materialData.textureFilePath = directoryPath + "/" + textureFilename;
+	if (node == nullptr) {
+		throw std::runtime_error("Cannot read a null model node.");
+	}
+	Node result;
+	aiMatrix4x4 localMatrix = node->mTransformation;
+	localMatrix.Transpose(); // Assimpの列ベクトル用行列から、エンジンの行ベクトル用行列に変換する。
+	for (uint32_t row = 0; row < 4; ++row) {
+		for (uint32_t column = 0; column < 4; ++column) {
+			// 頂点と同じX反転を行列にも適用する（S * M * S、S = diag(-1, 1, 1, 1)）。
+			const float rowSign = row == 0 ? -1.0f : 1.0f;
+			const float columnSign = column == 0 ? -1.0f : 1.0f;
+			result.localMatrix.m[row][column] = localMatrix[row][column] * rowSign * columnSign;
 		}
 	}
-
-	// 4. MaterialDataを返す
-	return materialData;
+	result.name = node->mName.C_Str();
+	result.children.reserve(node->mNumChildren);
+	for (uint32_t childIndex = 0; childIndex < node->mNumChildren; ++childIndex) {
+		result.children.push_back(ReadNode(node->mChildren[childIndex]));
+	}
+	return result;
 }
-
-
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename)
+ModelData LoadModelFile(const std::string& directoryPath, const std::string& filename)
 {
-	// 1. 中で必要となる変数の宣言
-	ModelData modelData; // 構築するModelData
-	std::vector<Vector4> positions; // 位置
-	std::vector<Vector3> normals;   // 法線
-	std::vector<Vector2> texcoords; // テクスチャ座標
-	std::string line; // ファイルを1行ずつ読むための変数
+	const std::filesystem::path filePath = std::filesystem::path(directoryPath) / filename;
+	Assimp::Importer importer;
+	// UVと頂点の回り順を反転し、四角形などのポリゴンは三角形に分割する。
+	// MakeLeftHandedは使わず、座標系の変換は下でX成分を反転して行う。
+	const aiScene* scene = importer.ReadFile(filePath.string(),
+		aiProcess_FlipWindingOrder | aiProcess_FlipUVs | aiProcess_Triangulate);
+	if (scene == nullptr || !scene->HasMeshes() || scene->mRootNode == nullptr) {
+		throw std::runtime_error("Failed to load model '" + filePath.string() + "': " + importer.GetErrorString());
+	}
 
-	// 2. ファイルを開く
-	std::ifstream file(directoryPath + "/" + filename); // ファイルを開く
-	assert(file.is_open()); // 開けなかったら止める
-
-	// 3. 実際にファイルを読み、ModelDataに構築していく
-	while (std::getline(file, line))
-	{
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier; // 先頭の識別子を読む
-
-		// identifierに応じた処理
-		if (identifier == "v")
-		{
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.w = 1.0f;
-			positions.push_back(position);
+	ModelData modelData;
+	// Node階層を保持する。描画への適用は資料の段階に合わせてRootNodeのみ行う。
+	modelData.rootNode = ReadNode(scene->mRootNode);
+	for (uint32_t meshIndex = 0; meshIndex < scene->mNumMeshes; ++meshIndex) {
+		const aiMesh* mesh = scene->mMeshes[meshIndex];
+		// 今回は法線・UVのあるモデルのみ対応する。Releaseでも検証する。
+		if (!mesh->HasNormals() || !mesh->HasTextureCoords(0)) {
+			throw std::runtime_error("Model requires normals and texture coordinates: " + filePath.string());
 		}
-		else if (identifier == "vt")
-		{
-			Vector2 texcoord;
-			s >> texcoord.x >> texcoord.y;
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		}
-		else if (identifier == "vn")
-		{
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normals.push_back(normal);
-		}
-		else if (identifier == "f")
-		{
-			// 3頂点分を一時的に保存するための配列
-			VertexData triangle[3];
 
-			// 面は三角形限定。その他は未対応
-			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex)
-			{
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-
-				// 頂点の要素へのIndexは「位置/UV/法線」で格納されているので、分解してIndexを取得する
-				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3];
-				for (int32_t element = 0; element < 3; ++element)
-				{
-					std::string index;
-					std::getline(v, index, '/'); // 区切りでインデックスを読んでいく
-					elementIndices[element] = std::stoi(index);
-				}
-
-				// 要素へのIndexから、実際の要素の値を取得する
-				Vector4 position = positions[elementIndices[0] - 1];
-				Vector2 texcoord = texcoords[elementIndices[1] - 1];
-				Vector3 normal = normals[elementIndices[2] - 1];
-
-				position.z *= -1.0f;
-				normal.z *= -1.0f;
-
-				VertexData vertex = { position, texcoord, normal };
-				modelData.vertices.push_back(vertex);
-				triangle[faceVertex] = { position,texcoord,normal };
+		for (uint32_t faceIndex = 0; faceIndex < mesh->mNumFaces; ++faceIndex) {
+			const aiFace& face = mesh->mFaces[faceIndex];
+			if (face.mNumIndices != 3) {
+				throw std::runtime_error("Only triangle faces are supported: " + filePath.string());
 			}
 
-			// 頂点を逆順で登録することで、回り順を逆にする
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
-		}
-		else if (identifier == "mtllib")
-		{
-			// materialTemplateLibraryファイルの名前を取得する
-			std::string materialFilename;
-			s >> materialFilename;
-
-			// 基本的にobjファイルと同一階層にmtlは存在させるので、ディレクトリ名とファイル名を渡す
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
+			// Faceのインデックスから各要素を取り出し、従来のDrawInstanced用に展開する。
+			for (uint32_t element = 0; element < face.mNumIndices; ++element) {
+				const uint32_t vertexIndex = face.mIndices[element];
+				const aiVector3D& position = mesh->mVertices[vertexIndex];
+				const aiVector3D& normal = mesh->mNormals[vertexIndex];
+				const aiVector3D& texcoord = mesh->mTextureCoords[0][vertexIndex];
+				VertexData vertex{};
+				vertex.position = { -position.x, position.y, position.z, 1.0f };
+				vertex.normal = { -normal.x, normal.y, normal.z };
+				vertex.texcoord = { texcoord.x, texcoord.y };
+				modelData.vertices.push_back(vertex);
+			}
 		}
 	}
 
-	// 4. ModelDataを返す
+	// 現在のModelDataはマテリアル1つ分。資料と同様、最後に見つかったテクスチャを使用する。
+	for (uint32_t materialIndex = 0; materialIndex < scene->mNumMaterials; ++materialIndex) {
+		const aiMaterial* material = scene->mMaterials[materialIndex];
+		// glTFのBaseColorを優先し、OBJなどでは従来のDiffuseを使う。
+		const aiTextureType textureType = material->GetTextureCount(aiTextureType_BASE_COLOR) != 0
+			? aiTextureType_BASE_COLOR : aiTextureType_DIFFUSE;
+		if (material->GetTextureCount(textureType) != 0) {
+			aiString textureFilePath;
+			if (material->GetTexture(textureType, 0, &textureFilePath) == AI_SUCCESS) {
+				std::filesystem::path texturePath(textureFilePath.C_Str());
+				if (texturePath.is_relative()) {
+					texturePath = filePath.parent_path() / texturePath;
+				}
+				modelData.material.textureFilePath = texturePath.lexically_normal().generic_string();
+				int doubleSided = 0;
+				material->Get(AI_MATKEY_TWOSIDED, doubleSided);
+				modelData.material.doubleSided = doubleSided != 0;
+			}
+		}
+	}
 	return modelData;
 }
-
 
 Microsoft::WRL::ComPtr<ID3D12Resource>
 CreateTextureResource(const Microsoft::WRL::ComPtr<ID3D12Device>& device, const DirectX::TexMetadata& metadata);
@@ -1232,11 +1205,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 実際に生成
 	// BlendModeごとにPSOを生成する（BlendModeを変える = PSOを変える）
 	ComPtr<ID3D12PipelineState> graphicsPipelineStates[kCountOfBlendMode];
+	ComPtr<ID3D12PipelineState> doubleSidedGraphicsPipelineStates[kCountOfBlendMode];
 	for (int i = 0; i < kCountOfBlendMode; ++i)
 	{
 		graphicsPipelineStateDesc.BlendState = CreateBlendDesc(static_cast<BlendMode>(i));
 		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc,
 			IID_PPV_ARGS(&graphicsPipelineStates[i]));
+		assert(SUCCEEDED(hr));
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC doubleSidedDesc = graphicsPipelineStateDesc;
+		doubleSidedDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+		hr = device->CreateGraphicsPipelineState(&doubleSidedDesc,
+			IID_PPV_ARGS(&doubleSidedGraphicsPipelineStates[i]));
 		assert(SUCCEEDED(hr));
 	}
 
@@ -1305,6 +1284,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// Particle用のPSO（Object3d用の設定をコピーして、RootSignatureとShaderだけ差し替える）
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineStateDesc = graphicsPipelineStateDesc;
+	// 平面のパーティクルは裏からも見えるようにする。
+	particlePipelineStateDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	particlePipelineStateDesc.pRootSignature = particleRootSignature.Get();
 	// Particleは深度を書き込まない（DepthTestはそのまま行うので、不透明なObjectとの前後関係は保たれる）
 	particlePipelineStateDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
@@ -1321,9 +1302,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	}
 
 	////////////////////////////// モデル読み込み ////////////////////////////
-	ModelData modelData = LoadObjFile("Resources", "plane.obj");
-	ModelData terrainData = LoadObjFile("Resources", "terrain.obj");
-	//ModelData modelDataAxis = LoadObjFile("Resources", "axis.obj");
+	ModelData modelData = LoadModelFile("Resources", "plane.gltf");
+	ModelData terrainData = LoadModelFile("Resources", "terrain.obj");
+	//ModelData modelDataAxis = LoadModelFile("Resources", "axis.obj");
 
 	// 頂点リソースを作る
 	ComPtr<ID3D12Resource> vertexResourceModel = CreateBufferResource(device.Get(), sizeof(VertexData) * modelData.vertices.size());
@@ -1397,6 +1378,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
 	ComPtr<ID3D12Resource> wvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
+	ComPtr<ID3D12Resource> modelWvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
 	ComPtr<ID3D12Resource> terrainWvpResource = CreateBufferResource(device.Get(), sizeof(TransformationMatrix));
 
 	// データを書き込む
@@ -1407,6 +1389,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 書き込むためのアドレスを取得
 
 	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixData));
+	TransformationMatrix* modelTransformationData = nullptr;
+	hr = modelWvpResource->Map(0, nullptr, reinterpret_cast<void**>(&modelTransformationData));
+	assert(SUCCEEDED(hr));
 	TransformationMatrix* terrainTransformationData = nullptr;
 	hr = terrainWvpResource->Map(0, nullptr, reinterpret_cast<void**>(&terrainTransformationData));
 	assert(SUCCEEDED(hr));
@@ -1415,6 +1400,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	transformationMatrixData->WVP = MakeIdentity4x4();
 	transformationMatrixData->World = MakeIdentity4x4();
 	transformationMatrixData->WorldInverseTranspose = MakeIdentity4x4();
+	*modelTransformationData = *transformationMatrixData;
 	terrainTransformationData->WVP = MakeIdentity4x4();
 	terrainTransformationData->World = MakeIdentity4x4();
 	terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
@@ -1663,6 +1649,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// Transform変数を作る
 	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
+	FKEngine::Particle modelTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{-3.0f,1.5f,0.0f} };
+	bool showModel = true;
+	bool modelDoubleSided = modelData.material.doubleSided;
+	bool applyRootNodeTransform = true;
 
 	FKEngine::Particle cameraTransform{ {1.0f,1.0f,1.0f},{0.38f,0.0f,0.0f},{0.0f,6.0f,-16.0f} };
 
@@ -1873,7 +1863,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// trueでParticle用のPipeline(Instancing描画)、falseで従来のObject3d用Pipelineで描画する
 	bool useInstancing = true;
 
-	bool useMonsterBall = false; // falseでuvChecker.pngを貼る
+	bool useModelTexture = true; // glTF/OBJのマテリアルから読み込んだテクスチャを使用する
 
 	// trueでParticleを常にカメラの方へ向ける(Billboard)
 	bool useBillboard = true;
@@ -1948,7 +1938,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			const char* blendModeNames[] = { "なし", "通常", "加算", "減算", "乗算", "スクリーン" };
 			ImGui::Combo("オブジェクトの合成方法", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
 			ImGui::Combo("パーティクルの合成方法", &currentParticleBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
-			ImGui::Checkbox("モンスターボール用テクスチャ", &useMonsterBall);
+			ImGui::Checkbox("モデル内のテクスチャを使用", &useModelTexture);
 			ImGui::Checkbox("ビルボード表示", &useBillboard);
 			ImGui::Checkbox("更新する", &update);
 			// Emitterの設定
@@ -1970,6 +1960,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::DragFloat3("影響範囲 最小", &accelerationField.area.min.x, 0.05f);
 			ImGui::DragFloat3("影響範囲 最大", &accelerationField.area.max.x, 0.05f);
 			ImGui::Checkbox("パーティクルのインスタンシング", &useInstancing);
+			ImGui::Separator();
+			ImGui::Text("glTFモデル：plane.gltf");
+			ImGui::Checkbox("glTFモデルを表示", &showModel);
+			ImGui::Checkbox("モデルを両面表示", &modelDoubleSided);
+			ImGui::Checkbox("RootNodeの変換を適用", &applyRootNodeTransform);
+			ImGui::Text("RootNode: %s", modelData.rootNode.name.c_str());
+			ImGui::DragFloat3("モデルの位置", &modelTransform.translate.x, 0.05f);
+			ImGui::DragFloat3("モデルの回転", &modelTransform.rotate.x, 0.01f);
+			ImGui::DragFloat3("モデルの大きさ", &modelTransform.scale.x, 0.01f, 0.01f, 10.0f);
 			ImGui::Separator();
 			ImGui::Text("モンスターボール");
 			ImGui::Checkbox("表示する", &showBall);
@@ -2125,10 +2124,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			transformationMatrixData->World = worldMatrix;
 			// 法線用。非均一スケールでも法線が面に対して垂直のままになる
 			transformationMatrixData->WorldInverseTranspose = Transpose(Inverse(worldMatrix));
-			const Matrix4x4 terrainWorldMatrix = MakeIdentity4x4();
+			const Matrix4x4 rootMatrix = applyRootNodeTransform ? modelData.rootNode.localMatrix : MakeIdentity4x4();
+			const Matrix4x4 modelWorldMatrix = Multiply(rootMatrix,
+				MakeAffineMatrix(modelTransform.scale, modelTransform.rotate, modelTransform.translate));
+			modelTransformationData->World = modelWorldMatrix;
+			modelTransformationData->WVP = Multiply(modelWorldMatrix, Multiply(viewMatrix, projectionMatrix));
+			modelTransformationData->WorldInverseTranspose = Transpose(Inverse(modelWorldMatrix));
+			const Matrix4x4 terrainWorldMatrix = terrainData.rootNode.localMatrix;
 			terrainTransformationData->WVP = Multiply(terrainWorldMatrix, Multiply(viewMatrix, projectionMatrix));
 			terrainTransformationData->World = terrainWorldMatrix;
-			terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
+			terrainTransformationData->WorldInverseTranspose = Transpose(Inverse(terrainWorldMatrix));
 
 			// Instancing用のTransformationMatrixを更新する
 			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
@@ -2195,6 +2200,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 					Matrix4x4 scaleMatrix = MakeScaleMatrix((*particleIterator).transform.scale);
 					Matrix4x4 translateMatrix = MakeTranslateMatrix((*particleIterator).transform.translate);
 					Matrix4x4 instanceWorldMatrix = Multiply(Multiply(scaleMatrix, billboardMatrix), translateMatrix);
+					instanceWorldMatrix = Multiply(rootMatrix, instanceWorldMatrix);
 					Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
 					instancingData[numInstance].WVP = instanceWVPMatrix;
 					instancingData[numInstance].World = instanceWorldMatrix;
@@ -2286,23 +2292,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->IASetVertexBuffers(0, 1, &terrainVertexBufferView);
 			commandList->DrawInstanced(UINT(terrainData.vertices.size()), 1, 0, 0);
 
-			// 以降は既存モデルとモンスターボール用の変換・テクスチャに戻す
+			// glTFモデルとモンスターボールは、それぞれの変換バッファで描画する
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+			commandList->SetGraphicsRootDescriptorTable(2, useModelTexture ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
 			/////////////////// 三角形用の描画
 			//commandList->IASetVertexBuffers(0, 1, &vertexBufferView); //  球のVBVを設定
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel); // モデルのVBVを設定
 
 			//commandList->DrawInstanced(kVertexCount, 1, 0, 0);
-			if (!useInstancing)
+			if (showModel)
 			{
+				commandList->SetPipelineState(modelDoubleSided
+					? doubleSidedGraphicsPipelineStates[currentBlendMode].Get()
+					: graphicsPipelineStates[currentBlendMode].Get());
+				commandList->SetGraphicsRootConstantBufferView(1, modelWvpResource->GetGPUVirtualAddress());
 				commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
 			}
 
 			// モンスターボールを1個だけ描画する（Enable LightingやLight Directionなどが効く）
 			if (showBall)
 			{
+				commandList->SetPipelineState(graphicsPipelineStates[currentBlendMode].Get());
+				commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // 球のVBV
 				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU4); // monsterBall.png
 				commandList->DrawInstanced(kVertexCount, 1, 0, 0);

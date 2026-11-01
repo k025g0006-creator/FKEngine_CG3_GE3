@@ -62,9 +62,11 @@ struct PixelShaderOutput
     float4 color : SV_TARGET0;
 };
 
-PixelShaderOutput main(VertexShaderOutput input)
+PixelShaderOutput main(VertexShaderOutput input, bool isFrontFace : SV_IsFrontFace)
 {
     PixelShaderOutput output;
+    // 両面マテリアルでは、裏面の法線を反転してライトを計算する。
+    float32_t3 normal = normalize(input.normal) * (isFrontFace ? 1.0f : -1.0f);
     
     // 物体表面からカメラ（視点）への方向。鏡面反射などで使う
     float32_t3 toEye = normalize(gCamera.worldPosition - input.worldPosition);
@@ -75,7 +77,7 @@ PixelShaderOutput main(VertexShaderOutput input)
    
     if (gMaterial.enableLighting != 0)
     {
-        float NdoL = dot(normalize(input.normal), -gDirectionalLight.direction);
+        float NdoL = dot(normal, -gDirectionalLight.direction);
         float cos = pow(NdoL * 0.5f + 0.5f, 2.0f);
         cos = max(cos, 0.15f); // 最低限の環境光。強すぎると全体が白く飽和する
         
@@ -83,7 +85,6 @@ PixelShaderOutput main(VertexShaderOutput input)
         float32_t3 diffuse = gMaterial.color.rgb * textureColor.rgb * gDirectionalLight.color.rgb * cos * gDirectionalLight.intensity;
         
         // 鏡面反射の強度を求める
-        float32_t3 normal = normalize(input.normal);
         float32_t3 lightDir = normalize(gDirectionalLight.direction);
         float specularPow;
         if (gMaterial.useBlinnPhong != 0)

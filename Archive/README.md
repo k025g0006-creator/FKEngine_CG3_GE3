@@ -15,3 +15,5 @@
 旧`FKAlpha`はGit上でサブモジュール参照（`05e9dd1c31fc3ccf2868e755abf436af51fd3938`）として登録されていましたが、ローカルには`.git`やソースのチェックアウトがなく、ビルド出力だけが残っていました。壊れたプロジェクト参照は使用中の`externals/DirectXTex`への参照に置き換えています。
 
 ルートにあった`x64`、DirectXTexの`Bin`と生成シェーダーは、プロジェクト外の`../FKEngine_Build/Legacy`へ、過去のログとダンプは`../FKEngine_Build/Logs`・`../FKEngine_Build/Dumps`へ移しています。
+
+NuGetキャッシュ、旧提出物の実行ファイル・DLL、サンプルから生成されたHTMLはローカル保管用とし、Gitの管理対象から外しています。手元にある内容は保持します。

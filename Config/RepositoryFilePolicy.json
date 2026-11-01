@@ -1,0 +1,20 @@
+{
+  "allowedFiles": [
+    {
+      "path": "Archive/ImGuiExamples_1.89.4/examples/libs/glfw/lib-vc2010-32/glfw3.lib",
+      "reason": "ImGui 1.89.4に同梱された、再生成しないサンプル用の外部ライブラリ。"
+    },
+    {
+      "path": "Archive/ImGuiExamples_1.89.4/examples/libs/glfw/lib-vc2010-64/glfw3.lib",
+      "reason": "ImGui 1.89.4に同梱された、再生成しないサンプル用の外部ライブラリ。"
+    },
+    {
+      "path": "Archive/Submission_LE2C_22/FKEngine/imgui-1.89.4/examples/libs/glfw/lib-vc2010-32/glfw3.lib",
+      "reason": "提出時のImGuiサンプルに同梱された外部ライブラリを保管。"
+    },
+    {
+      "path": "Archive/Submission_LE2C_22/FKEngine/imgui-1.89.4/examples/libs/glfw/lib-vc2010-64/glfw3.lib",
+      "reason": "提出時のImGuiサンプルに同梱された外部ライブラリを保管。"
+    }
+  ]
+}

@@ -8,6 +8,10 @@
 #include <chrono>
 #include <d3d12.h>
 #include <vector>
+#include <memory>
+#include <stdexcept>
+#include <exception>
+#include <array>
 #pragma comment(lib, "d3d12.lib")
 #include <dxgi1_6.h>
 #pragma comment(lib, "dxgi.lib")
@@ -32,12 +36,17 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <DirectXTex.h>
 
 #include "Matrix4x4.h"
+#include "Vector4.h"
+#include "Transform.h"
 #include "ResourceObject.h"
 #include "Sound.h"
 #include "DebugCamera.h"
 #include "Input.h"
 #include "WinApp.h"
 #include "DirectXBase.h"
+#include "SpriteBase.h"
+#include "Sprite.h"
+#include "TextureManager.h"
 #include "D3DResourceLeakChecker.h"
 #include "Logger.h"
 
@@ -50,20 +59,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 using Microsoft::WRL::ComPtr;
 
 
-struct Vector4
-{
-	float x, y, z, w;
-};
 
-namespace FKEngine
-{
-	struct Particle
-	{
-		Vector3 scale;
-		Vector3 rotate;
-		Vector3 translate;
-	};
-}
 
 struct TransformationMatrix
 {
@@ -157,7 +153,7 @@ struct ModelData
 
 struct Particle
 {
-	FKEngine::Particle transform;
+	FKEngine::Transform transform;
 	Vector3 velocity;
 	Vector4 color;
 	float lifeTime;
@@ -167,7 +163,7 @@ struct Particle
 // Particleを発生させる装置
 struct Emitter
 {
-	FKEngine::Particle transform; // エミッタのTransform（translateが発生位置）
+	FKEngine::Transform transform; // エミッタのTransform（translateが発生位置）
 	uint32_t count;               // 発生数
 	float frequency;              // 発生頻度（秒）
 	float frequencyTime;          // 頻度用時刻
@@ -555,8 +551,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		DirectXBase::kBackBufferCount,
 		rtvFormat,
 		srvDescriptorHeap.Get(),
-		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0),
-		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 0));
+		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kImGuiSRVIndex),
+		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kImGuiSRVIndex));
 	const std::u8string imguiIniPathUtf8 = (GetExecutableDirectory() / "Config/imgui.ini").u8string();
 	const std::string imguiIniPath(imguiIniPathUtf8.begin(), imguiIniPathUtf8.end());
 	io.IniFilename = imguiIniPath.c_str();
@@ -848,23 +844,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	ComPtr<ID3D12Resource> vertexResource = directXBase->CreateBufferResource(sizeof(VertexData) * kVertexCount);
 
-	// Sprite用の頂点リソースを作る
-	ComPtr<ID3D12Resource> vertexResourceSprite = directXBase->CreateBufferResource(sizeof(VertexData) * 6);
-
 	// マテリアル用のリソースを作る。今回はcolor1つ分のサイズを用意する
 	ComPtr<ID3D12Resource> materialResource = directXBase->CreateBufferResource(sizeof(Material));
 
 	// マテリアルにデータを書き込む
 	Material* materialData = nullptr;
-
-	// Sprite用のマテリアルリソースを作る
-	ComPtr<ID3D12Resource> materialResourceSprite = directXBase->CreateBufferResource(sizeof(Material));
-
-	Material* materialDataSprite = nullptr;
-
-	// 書き込むためのアドレスを取得
-	hr = materialResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&materialDataSprite));
-	assert(SUCCEEDED(hr));
 
 	// 書き込むためのアドレスを取得
 	hr = materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
@@ -877,7 +861,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	materialData->specularColor = { 0.25f, 0.25f, 0.25f };
 	materialData->useBlinnPhong = 1;
 
-	materialDataSprite->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
 
 	// ImGuiでの初期化
 	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
@@ -899,73 +882,28 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 	// 単位行列を書き込んでおく
-	transformationMatrixData->WVP = MakeIdentity4x4();
-	transformationMatrixData->World = MakeIdentity4x4();
-	transformationMatrixData->WorldInverseTranspose = MakeIdentity4x4();
-	terrainTransformationData->WVP = MakeIdentity4x4();
-	terrainTransformationData->World = MakeIdentity4x4();
-	terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
-
-	FKEngine::Particle transformSprite{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,0.0f,0.0f} };
-
-	// Sprite用のtransformationMatrix用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-	ComPtr<ID3D12Resource> transformationMatrixResourceSprite = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
-
-	// データを書き込む
-	TransformationMatrix* transformationMatrixDataSprite = nullptr;
-
-	// 書き込むためのアドレスを取得
-	transformationMatrixResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixDataSprite));
-
-	// 単位行列を書き込んでおく
-	transformationMatrixDataSprite->WVP = MakeIdentity4x4();
-	transformationMatrixDataSprite->World = MakeIdentity4x4();
-	transformationMatrixDataSprite->WorldInverseTranspose = MakeIdentity4x4();
-
-	ComPtr<ID3D12Resource> indexResourceSprite = directXBase->CreateBufferResource(sizeof(uint32_t) * 6);
-
-
-	D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
-
-	// リソースの先頭アドレスから使う
-	indexBufferViewSprite.BufferLocation = indexResourceSprite->GetGPUVirtualAddress();
-
-	// 使用するリソースのサイズはインデックス6つ分のサイズ
-	indexBufferViewSprite.SizeInBytes = sizeof(uint32_t) * 6;
-
-	// インデックスはuint32_tとする
-	indexBufferViewSprite.Format = DXGI_FORMAT_R32_UINT;
-
-	// インデックスリソースにデータを書き込む
-	uint32_t* indexDataSprite = nullptr;
-	indexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&indexDataSprite));
-
-	indexDataSprite[0] = 0;  indexDataSprite[1] = 1;   indexDataSprite[2] = 2;
-	indexDataSprite[3] = 3;  indexDataSprite[4] = 4;   indexDataSprite[5] = 5;
-
+	transformationMatrixData->WVP = Math::MakeIdentity4x4();
+	transformationMatrixData->World = Math::MakeIdentity4x4();
+	transformationMatrixData->WorldInverseTranspose = Math::MakeIdentity4x4();
+	terrainTransformationData->WVP = Math::MakeIdentity4x4();
+	terrainTransformationData->World = Math::MakeIdentity4x4();
+	terrainTransformationData->WorldInverseTranspose = Math::MakeIdentity4x4();
 
 	// VBV
 	// 頂点バッファビューを作成する
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
 
-	// 頂点バッファビューを作成する
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
-
 	// リソールの先頭のアドレスから使う
 	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-	vertexBufferViewSprite.BufferLocation = vertexResourceSprite->GetGPUVirtualAddress();
 
 	// 使用するリソースのサイズは頂点6つ分のサイズ
 	vertexBufferView.SizeInBytes = sizeof(VertexData) * kVertexCount;
-	vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
 
 	// 頂点1つ分のサイズ
 	vertexBufferView.StrideInBytes = sizeof(VertexData);
-	vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
 
 	// 頂点リソースにデータを書き込む
 	VertexData* vertexData = nullptr;
-	VertexData* vertexDataSprite = nullptr;
 
 	// 書き込むためのアドレスを取得
 	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
@@ -1015,10 +953,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	CameraForGPU* cameraData = nullptr;
 	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
 	cameraData->worldPosition = { 0.0f, 0.0f, 0.0f };
-	materialDataSprite->enableLighting = 0;
-	materialDataSprite->shininess = 40.0f;
-	materialDataSprite->specularColor = { 1.0f, 1.0f, 1.0f };
-	materialDataSprite->useBlinnPhong = 1;
 
 	const float pi = 3.14159265f;
 	float latitudeStep = pi / kSubdivision;
@@ -1102,38 +1036,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 	}
 
-	vertexResourceSprite->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataSprite));
-
-	// 1枚目の三角形
-	vertexDataSprite[0].position = { 0.0f, 360.0f, 0.0f, 1.0f }; // 左下
-	vertexDataSprite[0].texcoord = { 0.0f, 1.0f };
-	vertexDataSprite[0].normal = { 0.0f, 0.0f, -1.0f };
-
-	vertexDataSprite[1].position = { 640.0f, 360.0f, 0.0f, 1.0f }; // 右下
-	vertexDataSprite[1].texcoord = { 1.0f, 1.0f };
-	vertexDataSprite[1].normal = { 0.0f, 0.0f, -1.0f };
-
-	vertexDataSprite[2].position = { 0.0f, 0.0f, 0.0f, 1.0f }; // 左上
-	vertexDataSprite[2].texcoord = { 0.0f, 0.0f };
-	vertexDataSprite[2].normal = { 0.0f, 0.0f, -1.0f };
-
-	// 2枚目の三角形 (左上 → 右下 → 右上 の順で結ぶ：コード上は反時計回り)
-	vertexDataSprite[3].position = { 0.0f, 0.0f, 0.0f, 1.0f }; // 左上
-	vertexDataSprite[3].texcoord = { 0.0f, 0.0f };
-	vertexDataSprite[3].normal = { 0.0f, 0.0f, -1.0f };
-
-	vertexDataSprite[4].position = { 640.0f, 360.0f, 0.0f, 1.0f }; // 右下
-	vertexDataSprite[4].texcoord = { 1.0f, 1.0f };
-	vertexDataSprite[4].normal = { 0.0f, 0.0f, -1.0f };
-
-	vertexDataSprite[5].position = { 640.0f, 0.0f, 0.0f, 1.0f }; // 右上
-	vertexDataSprite[5].texcoord = { 1.0f, 0.0f };
-	vertexDataSprite[5].normal = { 0.0f, 0.0f, -1.0f };
-
 	// Transform変数を作る
-	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
+	FKEngine::Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
 
-	FKEngine::Particle cameraTransform{ {1.0f,1.0f,1.0f},{0.38f,0.0f,0.0f},{0.0f,6.0f,-16.0f} };
+	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.38f,0.0f,0.0f},{0.0f,6.0f,-16.0f} };
 
 	// デバッグカメラ
 	DebugCamera debugCamera;
@@ -1144,46 +1050,38 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	bool isDebugCameraActive = false;
 
 
-	FKEngine::Particle uvTransformSprite
-	{
-		{1.0f,1.0f,1.0f},
-		{0.0f,0.0f,0.0f},
-		{0.0f,0.0f,0.0f},
-	};
+	// パスで共有するテクスチャ管理。Spriteと3Dモデルから同じ画像を参照できる。
+	TextureManager* textureManager = TextureManager::GetInstance();
+	textureManager->Initialize(directXBase);
+	textureManager->LoadTexture("Resources/uvChecker.png");
+	textureManager->LoadTexture(modelData.material.textureFilePath);
+	textureManager->LoadTexture("Resources/circle.png");
+	textureManager->LoadTexture("Resources/monsterBall.png");
+	textureManager->LoadTexture(terrainData.material.textureFilePath);
 
-
-	// Textureを読んで転送する
-	DirectX::ScratchImage mipImages = DirectXBase::LoadTexture("resources/uvChecker.png");
-	const DirectX::TexMetadata& metadata = mipImages.GetMetadata();
-	ComPtr<ID3D12Resource> textureResource = directXBase->CreateTextureResource(metadata);
-
-	ComPtr<ID3D12Resource> intermediateResource = directXBase->UploadTextureData(textureResource, mipImages);
-
-	DirectX::ScratchImage mipImages2 = DirectXBase::LoadTexture(modelData.material.textureFilePath);
-	const DirectX::TexMetadata& metadata2 = mipImages2.GetMetadata();
-	ComPtr<ID3D12Resource> textureResource2 = directXBase->CreateTextureResource(metadata2);
-	ComPtr<ID3D12Resource> intermediateResource2 = directXBase->UploadTextureData(textureResource2, mipImages2);
-
-	// Particle用のTexture(circle.png)
-	DirectX::ScratchImage mipImages3 = DirectXBase::LoadTexture("resources/circle.png");
-	const DirectX::TexMetadata& metadata3 = mipImages3.GetMetadata();
-	ComPtr<ID3D12Resource> textureResource3 = directXBase->CreateTextureResource(metadata3);
-	ComPtr<ID3D12Resource> intermediateResource3 = directXBase->UploadTextureData(textureResource3, mipImages3);
-
-	// Particle(球)用のTexture(monsterBall.png)
-	DirectX::ScratchImage mipImages4 = DirectXBase::LoadTexture("Resources/monsterBall.png");
-	const DirectX::TexMetadata& metadata4 = mipImages4.GetMetadata();
-	ComPtr<ID3D12Resource> textureResource4 = directXBase->CreateTextureResource(metadata4);
-	ComPtr<ID3D12Resource> intermediateResource4 = directXBase->UploadTextureData(textureResource4, mipImages4);
-
-	// terrain.mtl の map_Kd で指定された草テクスチャ
-	DirectX::ScratchImage terrainMipImages = DirectXBase::LoadTexture(terrainData.material.textureFilePath);
-	const DirectX::TexMetadata& terrainMetadata = terrainMipImages.GetMetadata();
-	ComPtr<ID3D12Resource> terrainTextureResource = directXBase->CreateTextureResource(terrainMetadata);
-	ComPtr<ID3D12Resource> terrainTextureUploadResource = directXBase->UploadTextureData(
-		terrainTextureResource, terrainMipImages);
-
-
+	if (smokeTest) {
+		const size_t count = textureManager->GetTextureCount();
+		const auto originalHandle = textureManager->GetSrvHandleGPU("Resources/uvChecker.png");
+		textureManager->LoadTexture("./Resources/../Resources/uvChecker.png");
+		textureManager->LoadTexture("resources\\uvChecker.png");
+		textureManager->LoadTexture(std::filesystem::absolute("Resources/uvChecker.png").string());
+		bool rejectedMissingTexture = false;
+		try { textureManager->LoadTexture("Resources/__missing_texture__.png"); }
+		catch (const std::runtime_error&) { rejectedMissingTexture = true; }
+		if (textureManager->GetTextureCount() != count || !rejectedMissingTexture ||
+			textureManager->GetSrvHandleGPU("Resources/uvChecker.png").ptr != originalHandle.ptr) {
+			Logger::Log(logStream, "Texture cache or failed-load rollback check failed.");
+			std::terminate();
+		}
+		Logger::Log(logStream, "Texture smoke: duplicate paths shared; missing input rejected.");
+		bool rejectedInvalidIndex = false;
+		try { (void)textureManager->GetMetadata(static_cast<uint32_t>(count)); }
+		catch (const std::out_of_range&) { rejectedInvalidIndex = true; }
+		if (!rejectedInvalidIndex) {
+			Logger::Log(logStream, "Out-of-range texture metadata index was accepted.");
+			std::terminate();
+		}
+	}
 	// DirectInputの初期化
 	IDirectInput8* directInput = nullptr;
 	hr = DirectInput8Create(winApp->GetHInstance(), DIRECTINPUT_VERSION, IID_IDirectInput8, (void**)&directInput, nullptr);
@@ -1207,60 +1105,71 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = metadata.format;
-	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
-
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2{};
-	srvDesc2.Format = metadata2.format;
-	srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc2.Texture2D.MipLevels = UINT(metadata2.mipLevels);
-
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3{};
-	srvDesc3.Format = metadata3.format;
-	srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc3.Texture2D.MipLevels = UINT(metadata3.mipLevels);
-
-	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc4{};
-	srvDesc4.Format = metadata4.format;
-	srvDesc4.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	srvDesc4.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	srvDesc4.Texture2D.MipLevels = UINT(metadata4.mipLevels);
-
-	// SRVを作成するDescriptorHeapの場所を決める
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 1);
-
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU2 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU2 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 2);
-
-	// Heapの4番目にParticle用のcircle.pngのSRVを作成する（0:ImGui 1,2:Texture 3:Instancing 4:circle）
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU3 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU3 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 4);
-
-	// Heapの6番目にParticle(球)用のmonsterBall.pngのSRVを作成する（5:monsterBall）
-	D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU4 = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
-	D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU4 = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 5);
-	D3D12_CPU_DESCRIPTOR_HANDLE terrainTextureSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 6);
-	D3D12_GPU_DESCRIPTOR_HANDLE terrainTextureSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 6);
-
-
-	// SRVの生成
-	device->CreateShaderResourceView(textureResource.Get(), &srvDesc, textureSrvHandleCPU);
-	device->CreateShaderResourceView(textureResource2.Get(), &srvDesc2, textureSrvHandleCPU2);
-	device->CreateShaderResourceView(textureResource3.Get(), &srvDesc3, textureSrvHandleCPU3);
-	device->CreateShaderResourceView(textureResource4.Get(), &srvDesc4, textureSrvHandleCPU4);
-	D3D12_SHADER_RESOURCE_VIEW_DESC terrainSrvDesc{};
-	terrainSrvDesc.Format = terrainMetadata.format;
-	terrainSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	terrainSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-	terrainSrvDesc.Texture2D.MipLevels = UINT(terrainMetadata.mipLevels);
-	device->CreateShaderResourceView(terrainTextureResource.Get(), &terrainSrvDesc, terrainTextureSrvHandleCPU);
-
+	// SRVの割り当て・生成はTextureManagerに集約する。
+	const auto textureSrvHandleGPU = textureManager->GetSrvHandleGPU("Resources/uvChecker.png");
+	const auto textureSrvHandleGPU2 = textureManager->GetSrvHandleGPU(modelData.material.textureFilePath);
+	const auto textureSrvHandleGPU3 = textureManager->GetSrvHandleGPU("Resources/circle.png");
+	const auto textureSrvHandleGPU4 = textureManager->GetSrvHandleGPU("Resources/monsterBall.png");
+	const auto terrainTextureSrvHandleGPU = textureManager->GetSrvHandleGPU(terrainData.material.textureFilePath);
+	// 共通設定は1つ、スプライト1枚ごとのデータは別インスタンスにする。
+	SpriteBase spriteBase;
+	spriteBase.Initialize(directXBase, float(kClientWidth), float(kClientHeight));
+	// unique_ptrで所有するので、削除時・終了時に各Spriteのバッファも自動解放される。
+	std::vector<std::unique_ptr<Sprite>> sprites;
+	constexpr size_t kMaxSpriteCount = 256;
+	const std::array<std::string, 5> spriteTextures{
+		"Resources/uvChecker.png", "Resources/monsterBall.png", "Resources/circle.png",
+		"Resources/grass.png", "Resources/fence.png"
+	};
+	auto createSprite = [&](const std::string& texture, const Vector2& position, const Vector2& size) -> Sprite& {
+		auto sprite = std::make_unique<Sprite>();
+		if (texture.empty()) { sprite->Initialize(&spriteBase); }
+		else { sprite->Initialize(&spriteBase, texture); }
+		sprite->SetPosition(position);
+		sprite->SetSize(size);
+		Sprite& result = *sprite;
+		sprites.push_back(std::move(sprite));
+		return result;
+	};
+	auto duplicateSprite = [&](size_t index) -> Sprite& {
+		const Sprite& source = *sprites.at(index);
+		Sprite& copy = createSprite(source.GetTextureFilePath(),
+			{ source.GetPosition().x + 16.0f, source.GetPosition().y + 16.0f }, source.GetSize());
+		copy.SetRotation(source.GetRotation());
+		copy.SetColor(source.GetColor());
+		copy.SetAnchorPoint(source.GetAnchorPoint());
+		copy.SetFlipX(source.GetFlipX());
+		copy.SetFlipY(source.GetFlipY());
+		copy.SetTextureLeftTop(source.GetTextureLeftTop());
+		copy.SetTextureSize(source.GetTextureSize());
+		copy.SetUVPosition(source.GetUVPosition());
+		copy.SetUVScale(source.GetUVScale());
+		copy.SetUVRotation(source.GetUVRotation());
+		return copy;
+	};
+	createSprite(spriteTextures[0], { 16.0f, 16.0f }, { 160.0f, 160.0f });
+	createSprite(spriteTextures[1], { 192.0f, 16.0f }, { 96.0f, 96.0f });
+	std::unique_ptr<Sprite> deferredSmokeSprite;
+	if (smokeTest) {
+		const uint32_t index = textureManager->GetTextureIndexByFilePath(spriteTextures[0]);
+		Sprite indexedProbe;
+		indexedProbe.Initialize(&spriteBase, index);
+		const auto desc = textureManager->GetTextureBuffer(index)->GetDesc();
+		if (indexedProbe.GetSize().x != float(desc.Width) || indexedProbe.GetSize().y != float(desc.Height)) {
+			Logger::Log(logStream, "Texture-index initialization did not apply the GPU image size.");
+			std::terminate();
+		}
+		deferredSmokeSprite = std::make_unique<Sprite>();
+		deferredSmokeSprite->Initialize(&spriteBase);
+		if (deferredSmokeSprite->HasTexture()) { std::terminate(); }
+		Logger::Log(logStream, "Sprite smoke: index initialization matches GetDesc; omitted index accepted.");
+	}
+	bool showSprites = true;
+#ifdef USE_IMGUI
+	int selectedSprite = 0;
+	int newSpriteTexture = 0;
+	int spriteCreateCount = 1;
+#endif
 	////////////////////////////// Instancing ////////////////////////////
 	const uint32_t kNumMaxInstance = 100; // 最大インスタンス数
 
@@ -1275,8 +1184,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 単位行列を書き込んでおく
 	for (uint32_t index = 0; index < kNumMaxInstance; ++index)
 	{
-		instancingData[index].WVP = MakeIdentity4x4();
-		instancingData[index].World = MakeIdentity4x4();
+		instancingData[index].WVP = Math::MakeIdentity4x4();
+		instancingData[index].World = Math::MakeIdentity4x4();
 		instancingData[index].color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	}
 
@@ -1290,9 +1199,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	instancingSrvDesc.Buffer.NumElements = kNumMaxInstance;
 	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
 
-	// Heapの3番目にInstancing用のSRVを作成する（0:ImGui 1,2:Texture）
-	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
-	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
+	// 予約したInstancing用スロットへSRVを作成する（0:ImGui、1:Instancing、2以降:TextureManager）。
+	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kInstancingSRVIndex);
+	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kInstancingSRVIndex);
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
 	// CPU側のParticleはlistで管理する（最大数を予め決めなくてよい）
@@ -1355,6 +1264,79 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 		else
 		{
+			// 検証モードでは、描画フレームをまたいだ生成・複製・削除・再生成を確認する。
+			if (smokeTest) {
+				if (smokeTestFrames == 0) {
+					Sprite& boundsCheck = *sprites.front();
+					const auto& imageBounds = textureManager->GetMetadata(boundsCheck.GetTextureIndex());
+					const Vector2 displaySize = boundsCheck.GetSize();
+					boundsCheck.SetTextureLeftTop({ -20.0f, -30.0f });
+					boundsCheck.SetTextureSize({ 100000.0f, 100000.0f });
+					const bool fullBoundsOK = boundsCheck.GetTextureLeftTop().x == 0.0f &&
+						boundsCheck.GetTextureLeftTop().y == 0.0f &&
+						boundsCheck.GetTextureSize().x == float(imageBounds.width) &&
+						boundsCheck.GetTextureSize().y == float(imageBounds.height);
+					boundsCheck.SetTextureLeftTop({ float(imageBounds.width) + 20.0f, float(imageBounds.height) + 30.0f });
+					boundsCheck.SetTextureSize({ 0.0f, -20.0f });
+					const bool edgeBoundsOK = boundsCheck.GetTextureSize().x == 1.0f &&
+						boundsCheck.GetTextureSize().y == 1.0f &&
+						boundsCheck.GetTextureLeftTop().x == float(imageBounds.width) - 1.0f &&
+						boundsCheck.GetTextureLeftTop().y == float(imageBounds.height) - 1.0f;
+					boundsCheck.ResetTextureRegion();
+					if (!fullBoundsOK || !edgeBoundsOK || boundsCheck.GetSize().x != displaySize.x ||
+						boundsCheck.GetSize().y != displaySize.y) {
+						Logger::Log(logStream, "Sprite crop bounds or independent display size check failed.");
+						std::terminate();
+					}
+					Logger::Log(logStream, "Sprite smoke: crop bounds clamped; display size preserved.");
+					for (int index = 0; index < 10; ++index) {
+						Sprite& added = createSprite(spriteTextures[size_t(index) % spriteTextures.size()],
+							{ 16.0f + float(index) * 72.0f, 220.0f }, { 64.0f, 48.0f });
+						added.SetRotation(0.1f * float(index));
+						added.SetColor({ 0.7f, 0.9f, 1.0f, 0.5f });
+						added.SetAnchorPoint({ float(index % 3) * 0.5f, float((index + 1) % 3) * 0.5f });
+						added.SetFlipX((index & 1) != 0);
+						added.SetFlipY((index & 2) != 0);
+						const auto& image = textureManager->GetMetadata(added.GetTextureIndex());
+						added.SetTextureLeftTop({ float(image.width) * 0.25f, float(image.height) * 0.25f });
+						added.SetTextureSize({ float(image.width) * 0.5f, float(image.height) * 0.5f });
+					}
+					Sprite& cloned = duplicateSprite(sprites.size() - 1);
+					const Sprite& original = *sprites[sprites.size() - 2];
+					if (cloned.GetFlipX() != original.GetFlipX() || cloned.GetFlipY() != original.GetFlipY() ||
+						cloned.GetAnchorPoint().x != original.GetAnchorPoint().x ||
+						cloned.GetTextureLeftTop().x != original.GetTextureLeftTop().x ||
+						cloned.GetTextureLeftTop().y != original.GetTextureLeftTop().y ||
+						cloned.GetTextureSize().x != original.GetTextureSize().x ||
+						cloned.GetTextureSize().y != original.GetTextureSize().y) {
+						Logger::Log(logStream, "Sprite anchor/flip/crop clone test failed.");
+						std::terminate();
+					}
+					Logger::Log(logStream, "Sprite smoke: anchor, both flips, crop and clone settings verified.");
+					Logger::Log(logStream, "Sprite smoke: created and duplicated, count=13.");
+				} else if (smokeTestFrames == 1) {
+					deferredSmokeSprite->SetTextureIndex(textureManager->GetTextureIndexByFilePath(spriteTextures[0]));
+					deferredSmokeSprite->SetPosition({ 16.0f, 400.0f });
+					deferredSmokeSprite->SetSize({ 64.0f, 64.0f });
+					const uint32_t attachedIndex = deferredSmokeSprite->GetTextureIndex();
+					bool rejectedInvalidIndex = false;
+					try { deferredSmokeSprite->SetTextureIndex(UINT32_MAX - 1); }
+					catch (const std::out_of_range&) { rejectedInvalidIndex = true; }
+					if (!rejectedInvalidIndex || deferredSmokeSprite->GetTextureIndex() != attachedIndex) {
+						Logger::Log(logStream, "Invalid texture index did not preserve the original image.");
+						std::terminate();
+					}
+					Logger::Log(logStream, "Sprite smoke: deferred image attached; invalid index rejected.");
+					sprites.erase(sprites.begin());
+					sprites.clear();
+					Logger::Log(logStream, "Sprite smoke: removed one and cleared all, count=0.");
+				} else if (smokeTestFrames == 2) {
+					createSprite(spriteTextures[0], { 16.0f, 16.0f }, { 160.0f, 160.0f });
+					deferredSmokeSprite->SetTextureIndex(UINT32_MAX);
+					Logger::Log(logStream, "Sprite smoke: deferred image detached safely.");
+					Logger::Log(logStream, "Sprite smoke: recreated after empty, count=1.");
+				}
+			}
 			input->Update();
 
 			// マウス情報の取得開始
@@ -1499,9 +1481,143 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			ImGui::SliderFloat("平行光の明るさ", &directionalLightData->intensity, 0.0f, 3.0f);
 
-			ImGui::DragFloat2("テクスチャ位置", &uvTransformSprite.translate.x, 0.01f, -10.0f, 10.0f);
-			ImGui::DragFloat2("テクスチャ拡大率", &uvTransformSprite.scale.x, 0.01f, -10.0f, 10.0f);
-			ImGui::SliderAngle("テクスチャ回転", &uvTransformSprite.rotate.z);
+			ImGui::Separator();
+			ImGui::Text("スプライト");
+			ImGui::Checkbox("スプライトを表示", &showSprites);
+			const char* spriteTextureNames[] = { "UVチェッカー", "モンスターボール画像", "円形画像", "草", "フェンス", "画像なし" };
+			ImGui::Text("読み込み済み画像：%d（同じ画像は共有）", int(textureManager->GetTextureCount()));
+			ImGui::Text("生成数：%d / %d", int(sprites.size()), int(kMaxSpriteCount));
+			ImGui::Combo("追加する画像", &newSpriteTexture, spriteTextureNames, IM_ARRAYSIZE(spriteTextureNames));
+			ImGui::SliderInt("一度に生成する枚数", &spriteCreateCount, 1, 20);
+			ImGui::BeginDisabled(sprites.size() >= kMaxSpriteCount);
+			if (ImGui::Button("スプライトを追加")) {
+				for (int index = 0; index < spriteCreateCount && sprites.size() < kMaxSpriteCount; ++index) {
+					const size_t number = sprites.size();
+					createSprite(newSpriteTexture == int(spriteTextures.size()) ? std::string{} : spriteTextures[newSpriteTexture],
+						{ 16.0f + float(number % 6) * 144.0f, 16.0f + float((number / 6) % 4) * 144.0f },
+						{ 128.0f, 128.0f });
+				}
+				selectedSprite = int(sprites.size()) - 1;
+			}
+			ImGui::EndDisabled();
+			if (!sprites.empty()) {
+				selectedSprite = std::clamp(selectedSprite, 0, int(sprites.size()) - 1);
+			} else {
+				selectedSprite = -1;
+			}
+			std::string spritePreview = selectedSprite < 0 ? "スプライトなし" : std::format("スプライト {}", selectedSprite + 1);
+			if (ImGui::BeginCombo("操作するスプライト", spritePreview.c_str())) {
+				for (int index = 0; index < int(sprites.size()); ++index) {
+					const std::string name = std::format("スプライト {}", index + 1);
+					if (ImGui::Selectable(name.c_str(), selectedSprite == index)) {
+						selectedSprite = index;
+					}
+					if (selectedSprite == index) { ImGui::SetItemDefaultFocus(); }
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::BeginDisabled(sprites.empty() || sprites.size() >= kMaxSpriteCount);
+			if (ImGui::Button("選択したスプライトを複製")) {
+				duplicateSprite(size_t(selectedSprite));
+				selectedSprite = int(sprites.size()) - 1;
+			}
+			ImGui::EndDisabled();
+			ImGui::BeginDisabled(sprites.empty());
+			if (ImGui::Button("選択したスプライトを削除")) {
+				// 前フレームのGPU処理はDirectXBase::PostDrawで完了待ち済み。
+				sprites.erase(sprites.begin() + selectedSprite);
+				selectedSprite = sprites.empty() ? -1 : std::clamp(selectedSprite, 0, int(sprites.size()) - 1);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("すべてのスプライトを削除")) {
+				sprites.clear();
+				selectedSprite = -1;
+			}
+			ImGui::EndDisabled();
+			if (selectedSprite >= 0) {
+				Sprite& editedSprite = *sprites[selectedSprite];
+				int currentTexture = editedSprite.HasTexture() ? 0 : int(spriteTextures.size());
+				for (int index = 0; index < int(spriteTextures.size()); ++index) {
+					if (editedSprite.GetTextureFilePath() == spriteTextures[index]) { currentTexture = index; break; }
+				}
+				if (ImGui::Combo("選択中の画像", &currentTexture, spriteTextureNames, IM_ARRAYSIZE(spriteTextureNames))) {
+					if (currentTexture == int(spriteTextures.size())) { editedSprite.SetTextureIndex(UINT32_MAX); }
+					else { editedSprite.SetTexture(spriteTextures[currentTexture]); }
+				}
+				if (editedSprite.HasTexture()) {
+					const auto& imageMetadata = textureManager->GetMetadata(editedSprite.GetTextureIndex());
+					ImGui::Text("元画像：%d x %d", int(imageMetadata.width), int(imageMetadata.height));
+					if (ImGui::Button("元画像サイズに合わせる")) {
+						editedSprite.SetSize({ float(imageMetadata.width), float(imageMetadata.height) });
+					}
+				} else {
+					ImGui::Text("画像未指定：上の欄で画像を設定すると描画されます。");
+				}
+				Vector2 spritePosition = editedSprite.GetPosition();
+				if (ImGui::DragFloat2("画像の位置", &spritePosition.x, 1.0f)) {
+					editedSprite.SetPosition(spritePosition);
+				}
+				Vector2 spriteSize = editedSprite.GetSize();
+				if (ImGui::DragFloat2("画像のサイズ", &spriteSize.x, 1.0f, 1.0f, 2048.0f)) {
+					editedSprite.SetSize(spriteSize);
+				}
+				float spriteRotation = editedSprite.GetRotation();
+				if (ImGui::SliderAngle("画像の回転", &spriteRotation)) {
+					editedSprite.SetRotation(spriteRotation);
+				}
+				auto spriteColor = editedSprite.GetColor();
+				if (ImGui::ColorEdit4("画像の色・透明度", spriteColor.data())) {
+					editedSprite.SetColor(spriteColor);
+				}
+				Vector2 spriteAnchor = editedSprite.GetAnchorPoint();
+				if (ImGui::SliderFloat2("画像の基準点", &spriteAnchor.x, 0.0f, 1.0f)) {
+					editedSprite.SetAnchorPoint(spriteAnchor);
+				}
+				bool flipX = editedSprite.GetFlipX();
+				if (ImGui::Checkbox("左右反転", &flipX)) { editedSprite.SetFlipX(flipX); }
+				ImGui::SameLine();
+				bool flipY = editedSprite.GetFlipY();
+				if (ImGui::Checkbox("上下反転", &flipY)) { editedSprite.SetFlipY(flipY); }
+				if (ImGui::Button("左上を基準にする")) { editedSprite.SetAnchorPoint({ 0.0f, 0.0f }); }
+				ImGui::SameLine();
+				if (ImGui::Button("中央を基準にする")) { editedSprite.SetAnchorPoint({ 0.5f, 0.5f }); }
+				ImGui::SameLine();
+				if (ImGui::Button("右下を基準にする")) { editedSprite.SetAnchorPoint({ 1.0f, 1.0f }); }
+				ImGui::Text("反転と回転は基準点を中心に行います。");
+				ImGui::Separator();
+				ImGui::Text("テクスチャの切り出し（元画像のピクセル単位）");
+				ImGui::BeginDisabled(!editedSprite.HasTexture());
+				Vector2 cropLeftTop = editedSprite.GetTextureLeftTop();
+				if (ImGui::DragFloat2("切り出し左上(px)", &cropLeftTop.x, 1.0f)) {
+					editedSprite.SetTextureLeftTop(cropLeftTop);
+				}
+				Vector2 cropSize = editedSprite.GetTextureSize();
+				if (ImGui::DragFloat2("切り出しサイズ(px)", &cropSize.x, 1.0f)) {
+					editedSprite.SetTextureSize(cropSize);
+				}
+				if (ImGui::Button("画像全体を使う")) { editedSprite.ResetTextureRegion(); }
+				ImGui::SameLine();
+				if (ImGui::Button("切り出しサイズで表示")) { editedSprite.SetSize(editedSprite.GetTextureSize()); }
+				ImGui::EndDisabled();
+				ImGui::Text("切り出し範囲は元画像の内側に制限されます。");
+				ImGui::Separator();
+				ImGui::Text("詳細UV変形");
+				Vector2 uvPosition = editedSprite.GetUVPosition();
+				if (ImGui::DragFloat2("UVオフセット", &uvPosition.x, 0.01f)) {
+					editedSprite.SetUVPosition(uvPosition);
+				}
+				Vector2 uvScale = editedSprite.GetUVScale();
+				if (ImGui::DragFloat2("UV倍率", &uvScale.x, 0.01f)) {
+					editedSprite.SetUVScale(uvScale);
+				}
+				float uvRotation = editedSprite.GetUVRotation();
+				if (ImGui::SliderAngle("UV回転", &uvRotation)) {
+					editedSprite.SetUVRotation(uvRotation);
+				}
+
+			} else {
+				ImGui::Text("上のボタンからスプライトを追加できます。");
+			}
 
 			ImGui::Separator();
 			ImGui::Text("モデルの変形");
@@ -1534,8 +1650,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 			// オブジェクトのワールド行列
-			Matrix4x4 worldMatrix = MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-			Matrix4x4 worldMatrixSprite = MakeAffineMatrix(transformSprite.scale, transformSprite.rotate, transformSprite.translate);
+			Matrix4x4 worldMatrix = Math::MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
 
 			// カメラの行列（デバッグカメラが有効な場合はそちらを使用）
 			Matrix4x4 viewMatrix{};
@@ -1545,48 +1660,45 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			else
 			{
-				Matrix4x4 cameraMatrix = MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
-				viewMatrix = Inverse(cameraMatrix); // カメラの逆行列がビュー行列
+				Matrix4x4 cameraMatrix = Math::MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate, cameraTransform.translate);
+				viewMatrix = Math::Inverse(cameraMatrix); // カメラの逆行列がビュー行列
 			}
 
 			// ビュー行列の逆行列がカメラのワールド行列。その平行移動成分がカメラのワールド位置
 			{
-				Matrix4x4 cameraWorldMatrix = Inverse(viewMatrix);
+				Matrix4x4 cameraWorldMatrix = Math::Inverse(viewMatrix);
 				cameraData->worldPosition = { cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2] };
 			}
 
-			Matrix4x4 viewMatrixSprite = MakeIdentity4x4(); // スプライトはカメラの影響を受けないので、ビュー行列は単位行列
 
 			// 投影行列
-			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
-			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
+			Matrix4x4 projectionMatrix = Math::MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
 
 			// 行列の合成
-			Matrix4x4 worldViewProjectionMatrix = Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-			Matrix4x4 worldViewProjectionMatrixSprite = Multiply(worldMatrixSprite, Multiply(viewMatrixSprite, projectionMatrixSprite));
+			Matrix4x4 worldViewProjectionMatrix = Math::Multiply(worldMatrix, Math::Multiply(viewMatrix, projectionMatrix));
 
 			// 定数バッファへ書き込み
 			transformationMatrixData->WVP = worldViewProjectionMatrix;
 			transformationMatrixData->World = worldMatrix;
 			// 法線用。非均一スケールでも法線が面に対して垂直のままになる
-			transformationMatrixData->WorldInverseTranspose = Transpose(Inverse(worldMatrix));
-			const Matrix4x4 terrainWorldMatrix = MakeIdentity4x4();
-			terrainTransformationData->WVP = Multiply(terrainWorldMatrix, Multiply(viewMatrix, projectionMatrix));
+			transformationMatrixData->WorldInverseTranspose = Math::Transpose(Math::Inverse(worldMatrix));
+			const Matrix4x4 terrainWorldMatrix = Math::MakeIdentity4x4();
+			terrainTransformationData->WVP = Math::Multiply(terrainWorldMatrix, Math::Multiply(viewMatrix, projectionMatrix));
 			terrainTransformationData->World = terrainWorldMatrix;
-			terrainTransformationData->WorldInverseTranspose = MakeIdentity4x4();
+			terrainTransformationData->WorldInverseTranspose = Math::MakeIdentity4x4();
 
 			// Instancing用のTransformationMatrixを更新する
-			Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
+			Matrix4x4 viewProjectionMatrix = Math::Multiply(viewMatrix, projectionMatrix);
 
 			// BillboardMatrixを作る（全てのParticleで同じ行列を使える）
-			Matrix4x4 billboardMatrix = MakeIdentity4x4(); // 利用しない場合は単位行列
+			Matrix4x4 billboardMatrix = Math::MakeIdentity4x4(); // 利用しない場合は単位行列
 			if (useBillboard)
 			{
 				// ビュー行列の逆行列がカメラのワールド行列（デバッグカメラ使用時も同じ式で求まる）
-				Matrix4x4 cameraMatrix = Inverse(viewMatrix);
+				Matrix4x4 cameraMatrix = Math::Inverse(viewMatrix);
 				// 板ポリの裏が見えているので、Y軸でπ回転させて表をカメラ側へ向ける
-				Matrix4x4 backToFrontMatrix = MakeRotateYMatrix(std::numbers::pi_v<float>);
-				billboardMatrix = Multiply(backToFrontMatrix, cameraMatrix);
+				Matrix4x4 backToFrontMatrix = Math::MakeRotateYMatrix(std::numbers::pi_v<float>);
+				billboardMatrix = Math::Multiply(backToFrontMatrix, cameraMatrix);
 				// 平行移動成分はいらない
 				billboardMatrix.m[3][0] = 0.0f;
 				billboardMatrix.m[3][1] = 0.0f;
@@ -1619,7 +1731,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				if (update)
 				{
 					// Fieldの範囲内のParticleには加速度を適用する
-					if (useAccelerationField && IsCollision(accelerationField.area, (*particleIterator).transform.translate))
+					if (useAccelerationField && Math::IsCollision(accelerationField.area, (*particleIterator).transform.translate))
 					{
 						(*particleIterator).velocity.x += accelerationField.acceleration.x * kDeltaTime;
 						(*particleIterator).velocity.y += accelerationField.acceleration.y * kDeltaTime;
@@ -1637,10 +1749,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				if (numInstance < kNumMaxInstance)
 				{
 					// scale * billboard * translate
-					Matrix4x4 scaleMatrix = MakeScaleMatrix((*particleIterator).transform.scale);
-					Matrix4x4 translateMatrix = MakeTranslateMatrix((*particleIterator).transform.translate);
-					Matrix4x4 instanceWorldMatrix = Multiply(Multiply(scaleMatrix, billboardMatrix), translateMatrix);
-					Matrix4x4 instanceWVPMatrix = Multiply(instanceWorldMatrix, viewProjectionMatrix);
+					Matrix4x4 scaleMatrix = Math::MakeScaleMatrix((*particleIterator).transform.scale);
+					Matrix4x4 translateMatrix = Math::MakeTranslateMatrix((*particleIterator).transform.translate);
+					Matrix4x4 instanceWorldMatrix = Math::Multiply(Math::Multiply(scaleMatrix, billboardMatrix), translateMatrix);
+					Matrix4x4 instanceWVPMatrix = Math::Multiply(instanceWorldMatrix, viewProjectionMatrix);
 					instancingData[numInstance].WVP = instanceWVPMatrix;
 					instancingData[numInstance].World = instanceWorldMatrix;
 					instancingData[numInstance].color = (*particleIterator).color;
@@ -1652,18 +1764,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				++particleIterator; // 次のイテレータに進める
 			}
 
-			transformationMatrixDataSprite->WVP = worldViewProjectionMatrixSprite;
-			transformationMatrixDataSprite->World = worldMatrixSprite;
-			transformationMatrixDataSprite->WorldInverseTranspose = Transpose(Inverse(worldMatrixSprite));
-
-			// UVTransform用の行列
-			Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
-			uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
-			uvTransformMatrix = Multiply(uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
-
-			materialDataSprite->uvTransform = uvTransformMatrix;
-
-			materialData->uvTransform = MakeIdentity4x4();
+			materialData->uvTransform = Math::MakeIdentity4x4();
 
 			// ImGuiでの色変更
 			materialData->color.x = colorArray[0];
@@ -1723,23 +1824,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			///////////////////////////////////
 
-			////////////////// Spriteの描画。変更が必要なものだけ変更する
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite); // VBVを設定
-
-			commandList->SetGraphicsRootConstantBufferView(0, materialResourceSprite->GetGPUVirtualAddress());
-
-			// transformationMatrixの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-
-			commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-
-			commandList->IASetIndexBuffer(&indexBufferViewSprite);
-
-			// 描画！（DrawCall/ドローコール）6頂点で1つのインスタンス。
-			//commandList->DrawInstanced(6, 1, 0, 0);
-			//commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
-			///////////////////////////////////
-
 			////////////////// Particle(Instancing)の描画
 			// RootSignatureが変わるので、必要なものは全て設定し直す
 			if (useInstancing)
@@ -1765,6 +1849,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			///////////////////////////////////
 
+			// 3DとParticleの後に、深度を使わないSprite専用パイプラインで描画する。
+			if (showSprites) {
+				// Sprite全体の描画ルールを1回設定し、その後に各Spriteを描画する。
+				spriteBase.SetCommonRenderState();
+				for (const auto& sprite : sprites) {
+					sprite->Update();
+					sprite->Draw();
+				}
+				if (deferredSmokeSprite) {
+					deferredSmokeSprite->Update();
+					deferredSmokeSprite->Draw();
+				}
+			}
 #ifdef USE_IMGUI
 			// 実際のcommandListのImGuiの描画コマンドを頼む
 			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
@@ -1773,6 +1870,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 			directXBase->PostDraw();
+			// PostDrawのフェンス待ち後なので、転送用リソースを安全に解放できる。
+			textureManager->ReleaseUploadResources();
+			if (smokeTest && textureManager->GetPendingUploadCount() != 0) {
+				Logger::Log(logStream, "Texture upload resources were not released after GPU completion.");
+				std::terminate();
+			}
 			if (smokeTest && ++smokeTestFrames == 3)
 			{
 				Logger::Log(logStream, "Smoke test completed: 3 frames rendered.");
@@ -1798,6 +1901,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	ImGui::DestroyContext();
 #endif
 
+	// 最終フレームのGPU完了後、借りているDirectXBaseを破棄する前にSpriteを解放する。
+	sprites.clear();
+	deferredSmokeSprite.reset();
+	TextureManager::Finalize();
 	directXBase->Finalize();
 	delete directXBase;
 

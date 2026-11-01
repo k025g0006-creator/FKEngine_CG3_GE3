@@ -75,19 +75,6 @@ ComPtr<ID3D12Resource> DirectXBase::CreateBufferResource(size_t sizeInBytes)
 	return resource;
 }
 
-DirectX::ScratchImage DirectXBase::LoadTexture(const std::string& filePath)
-{
-	DirectX::ScratchImage image;
-	const std::wstring filePathW = StringUtility::ConvertString(filePath);
-	HRESULT hr = DirectX::LoadFromWICFile(filePathW.c_str(), DirectX::WIC_FLAGS_FORCE_SRGB, nullptr, image);
-	assert(SUCCEEDED(hr));
-
-	DirectX::ScratchImage mipImages;
-	hr = DirectX::GenerateMipMaps(image.GetImages(), image.GetImageCount(), image.GetMetadata(), DirectX::TEX_FILTER_SRGB, 0, mipImages);
-	assert(SUCCEEDED(hr));
-	return mipImages;
-}
-
 ComPtr<ID3D12Resource> DirectXBase::CreateTextureResource(const DirectX::TexMetadata& metadata)
 {
 	D3D12_RESOURCE_DESC resourceDesc{};
@@ -232,7 +219,7 @@ bool DirectXBase::Initialize(HWND hwnd, UINT width, UINT height)
 
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc{};
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvHeapDesc.NumDescriptors = kSRVDescriptorCount;
+	srvHeapDesc.NumDescriptors = kMaxSRVCount;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	hr = device_->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&srvDescriptorHeap_));
 	if (FAILED(hr)) return false;

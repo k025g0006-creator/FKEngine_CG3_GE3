@@ -1,36 +1,21 @@
 #pragma once
-
-// 2次元ベクトルクラス
-class Vector2
-{
-public:
-    float x, y;
-
-    Vector2();
-    Vector2(float x, float y);
-};
-
-class Vector3
-{
-public:
-    float x, y, z;
-
-    Vector3();
-    Vector3(float x, float y, float z);
-
-    static Vector3 Add(const Vector3& v1, const Vector3& v2);
-    static Vector3 Subtract(const Vector3& v1, const Vector3& v2);
-    static Vector3 Multiply(float scalar, const Vector3& v);
-    static float Dot(const Vector3& v1, const Vector3& v2);
-    static float Length(const Vector3& v);
-    static Vector3 Normalize(const Vector3& v);
-};
+#include "Vector2.h"
+#include "Vector3.h"
 
 struct Matrix4x4
 {
     float m[4][4];
 };
 
+// 軸平行境界ボックス（Axis Aligned Bounding Box）
+struct AABB
+{
+    Vector3 min;
+    Vector3 max;
+};
+
+namespace Math
+{
 // 加法
 Matrix4x4 Add(const Matrix4x4& m1, const Matrix4x4& m2);
 
@@ -79,15 +64,10 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio, float nearClip
 // 正射影行列
 Matrix4x4 MakeOrthographicMatrix(float left, float top, float right, float bottom, float nearClip, float farClip);
 
+bool IsCollision(const AABB& aabb, const Vector3& point);
+
+}
+// Matrix4x4と同じスコープで演算子を公開し、内部計算はMathに委譲する。
 // 積
 Matrix4x4 operator*(const Matrix4x4& m1, const Matrix4x4& m2);
 Matrix4x4& operator*=(Matrix4x4& m1, const Matrix4x4& m2);
-
-// 軸平行境界ボックス（Axis Aligned Bounding Box）
-struct AABB
-{
-    Vector3 min;
-    Vector3 max;
-};
-
-bool IsCollision(const AABB& aabb, const Vector3& point);

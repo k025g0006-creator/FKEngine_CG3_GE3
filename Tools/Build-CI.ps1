@@ -68,7 +68,8 @@ try {
     if (!(Test-Path -LiteralPath $dxc)) { throw "DXC was not found: $dxc" }
     $shaderOutput = Join-Path $outputDirectory "ShaderChecks\$Configuration"
     [IO.Directory]::CreateDirectory($shaderOutput) | Out-Null
-    foreach ($shader in Get-ChildItem (Join-Path $repositoryRoot 'Resources\Shaders') -Filter *.hlsl -File) {
+    $shaderSources = @(Get-ChildItem (Join-Path $repositoryRoot 'Resources\Shaders') -Filter *.hlsl -File)
+    foreach ($shader in $shaderSources) {
         $profile = if ($shader.Name -like '*.VS.hlsl') { 'vs_6_0' } else { 'ps_6_0' }
         & $dxc -E main -T $profile -Zpr -WX -I $shader.DirectoryName -Fo (Join-Path $shaderOutput ($shader.Name + '.dxil')) $shader.FullName
         if ($LASTEXITCODE -ne 0) { throw "Shader compilation failed: $($shader.Name)" }
@@ -88,7 +89,7 @@ try {
         }
     }
 
-    Write-Output "${Configuration}: C++ build, 4 shaders and runtime resource checks passed."
+    Write-Output "${Configuration}: C++ build, $($shaderSources.Count) shaders and runtime resource checks passed."
 } finally {
     Pop-Location
 }

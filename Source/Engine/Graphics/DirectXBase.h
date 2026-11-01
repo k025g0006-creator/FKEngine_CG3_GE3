@@ -15,7 +15,10 @@ class DirectXBase
 {
 public:
 	static constexpr UINT kBackBufferCount = 2;
-	static constexpr UINT kSRVDescriptorCount = 128;
+    static constexpr UINT kMaxSRVCount = 512;
+    static constexpr UINT kImGuiSRVIndex = 0;
+    static constexpr UINT kInstancingSRVIndex = 1;
+    static constexpr UINT kFirstTextureSRVIndex = 2;
 
 	bool Initialize(HWND hwnd, UINT width, UINT height);
 	void Finalize();
@@ -23,7 +26,6 @@ public:
 	void PostDraw();
 	Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(const std::wstring& filePath, const wchar_t* profile);
 	Microsoft::WRL::ComPtr<ID3D12Resource> CreateBufferResource(size_t sizeInBytes);
-	static DirectX::ScratchImage LoadTexture(const std::string& filePath);
 	Microsoft::WRL::ComPtr<ID3D12Resource> CreateTextureResource(const DirectX::TexMetadata& metadata);
 	Microsoft::WRL::ComPtr<ID3D12Resource> UploadTextureData(
 		const Microsoft::WRL::ComPtr<ID3D12Resource>& texture,

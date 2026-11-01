@@ -208,4 +208,51 @@
       <Filter>Archive</Filter>
     </None>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Engine\Graphics\SpriteBase.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Engine\Graphics\Sprite.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\Engine\Graphics\SpriteBase.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\Engine\Graphics\Sprite.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Resources\Shaders\Sprite.VS.hlsl">
+      <Filter>Resources\Shaders</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Resources\Shaders\Sprite.PS.hlsl">
+      <Filter>Resources\Shaders</Filter>
+    </FxCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Shaders\Sprite.hlsli">
+      <Filter>Resources\Shaders</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup><ClCompile Include="Source\Engine\Math\Vector2.cpp"><Filter>Source\Engine\Math</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClCompile Include="Source\Engine\Math\Vector3.cpp"><Filter>Source\Engine\Math</Filter></ClCompile></ItemGroup>
+  <ItemGroup><ClInclude Include="Source\Engine\Math\Vector2.h"><Filter>Source\Engine\Math</Filter></ClInclude></ItemGroup>
+  <ItemGroup><ClInclude Include="Source\Engine\Math\Vector3.h"><Filter>Source\Engine\Math</Filter></ClInclude></ItemGroup>
+  <ItemGroup><ClInclude Include="Source\Engine\Math\Vector4.h"><Filter>Source\Engine\Math</Filter></ClInclude></ItemGroup>
+  <ItemGroup><ClInclude Include="Source\Engine\Math\Transform.h"><Filter>Source\Engine\Math</Filter></ClInclude></ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\Engine\Graphics\TextureManager.cpp"><Filter>Source\Engine\Graphics</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\Engine\Graphics\TextureManager.h"><Filter>Source\Engine\Graphics</Filter></ClInclude>
+  </ItemGroup>
 </Project>

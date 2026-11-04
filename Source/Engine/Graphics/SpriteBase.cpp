@@ -2,6 +2,7 @@
 #include "DirectXBase.h"
 #include <cfloat>
 #include <stdexcept>
+#include <cmath>
 
 namespace
 {
@@ -22,18 +23,31 @@ void SpriteBase::Initialize(DirectXBase* directXBase, float screenWidth, float s
 
     // 所有権はmain側にある。このポインタをnew/deleteしない。
     directXBase_ = directXBase;
-    screenWidth_ = screenWidth;
-    screenHeight_ = screenHeight;
     try {
         CreateGraphicsPipelineState();
+        SetScreenSize(screenWidth, screenHeight);
     } catch (...) {
         // 初期化失敗時は不完全な描画設定を残さない。
         pipelineState_.Reset();
         rootSignature_.Reset();
         directXBase_ = nullptr;
         screenWidth_ = screenHeight_ = 0.0f;
+        projectionMatrix_ = Math::MakeIdentity4x4();
+        projectionRevision_ = 0;
         throw;
     }
+}
+
+void SpriteBase::SetScreenSize(float width, float height)
+{
+    if (!std::isfinite(width) || !std::isfinite(height) || width <= 0.0f || height <= 0.0f) {
+        throw std::invalid_argument("Sprite projection size must be finite and positive.");
+    }
+    if (screenWidth_ == width && screenHeight_ == height) { return; }
+    projectionMatrix_ = Math::MakeOrthographicMatrix(0.0f, 0.0f, width, height, 0.0f, 100.0f);
+    screenWidth_ = width;
+    screenHeight_ = height;
+    ++projectionRevision_;
 }
 
 void SpriteBase::CreateRootSignature()

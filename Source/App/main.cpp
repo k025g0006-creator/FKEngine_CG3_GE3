@@ -11,6 +11,7 @@
 #include <memory>
 #include <stdexcept>
 #include <exception>
+#include <cmath>
 #include <array>
 #pragma comment(lib, "d3d12.lib")
 #include <dxgi1_6.h>
@@ -44,6 +45,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "Input.h"
 #include "WinApp.h"
 #include "DirectXBase.h"
+#include "Object3DBase.h"
+#include "Model.h"
+#include "ModelBase.h"
+#include "ModelManager.h"
 #include "SpriteBase.h"
 #include "Sprite.h"
 #include "TextureManager.h"
@@ -61,12 +66,9 @@ using Microsoft::WRL::ComPtr;
 
 
 
-struct TransformationMatrix
-{
-	Matrix4x4 WVP;
-	Matrix4x4 World;
-	Matrix4x4 WorldInverseTranspose; // 法線を変換するための行列（Worldの逆転置行列）
-};
+// Particleも3Dオブジェクトと同じ頂点・マテリアルの配置を利用する。
+using VertexData = Model::VertexData;
+using Material = Model::Material;
 
 // Instancing用（StructuredBufferに入れる）。HLSL側のParticleForGPUと並びを合わせる
 struct ParticleForGPU
@@ -74,81 +76,6 @@ struct ParticleForGPU
 	Matrix4x4 WVP;
 	Matrix4x4 World;
 	Vector4 color;
-};
-
-struct VertexData
-{
-	Vector4 position;
-	Vector2 texcoord;
-	Vector3 normal;
-};
-
-struct Material
-{
-	Vector4 color;
-	int32_t enableLighting;
-	float padding[3];
-	Matrix4x4 uvTransform;
-	float shininess;     // 光沢度（大きいほどハイライトが小さく鋭くなる）
-	Vector3 specularColor; // 物体の鏡面反射色（shininessと合わせて16byteになる）
-	int32_t useBlinnPhong; // 1:Blinn-Phong、0:Phong（比較用に切り替えられる）
-	float padding3[3];     // 全体を16byteの倍数(128byte)に揃える
-};
-
-struct MaterialData
-{
-	std::string textureFilePath;
-};
-
-struct DirectionalLight
-{
-	Vector4 color;     // ライトの色
-	Vector3 direction; // ライトの向き
-	float intensity;   // 輝度
-};
-
-struct PointLight
-{
-	Vector4 color;     // ライトの色
-	Vector3 position;  // ライトの位置
-	float intensity;   // 輝度
-	float radius;      // ライトの影響範囲
-	float decay;       // 影響範囲内での減衰率
-	float padding[2];  // 定数バッファを16byte境界に揃える
-};
-
-struct SpotLight
-{
-	Vector4 color;     // ライトの色
-	Vector3 position;  // ライトの位置
-	float intensity;   // 輝度
-	Vector3 direction; // 光が進む方向
-	float distance;    // 影響範囲
-	float decay;       // 距離による減衰率
-	float cosAngle;         // 照射範囲の境界角のcos
-	float cosFalloffStart;  // Falloffを開始する角度のcos
-	float padding[1];       // 定数バッファを16byte境界に揃える
-};
-
-// カメラのワールド位置（PixelShaderへ送る。HLSL側のCameraと並びを合わせる）
-struct CameraForGPU
-{
-	Vector3 worldPosition;
-	float padding; // 定数バッファは16byte単位で読まれるので、float3だけだと範囲外を読んでしまう。16byteに揃える
-};
-
-// CPU側の配置がシェーダーの定数バッファ定義と一致していることを確認する。
-static_assert(sizeof(TransformationMatrix) == 192);
-static_assert(sizeof(Material) == 128);
-static_assert(sizeof(PointLight) == 48);
-static_assert(sizeof(SpotLight) == 64);
-static_assert(sizeof(CameraForGPU) == 16);
-
-
-struct ModelData
-{
-	std::vector<VertexData> vertices;
-	MaterialData material;
 };
 
 struct Particle
@@ -182,77 +109,6 @@ struct ParticleGPU
 	Matrix4x4 World;
 	Vector4 color;
 };
-
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename);
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename);
-
-// ---------------------------------------------
-// BlendMode
-// ---------------------------------------------
-enum BlendMode
-{
-	kBlendModeNone,      // ブレンドなし
-	kBlendModeNormal,    // 通常αブレンド。Src * SrcA + Dest * (1 - SrcA)
-	kBlendModeAdd,       // 加算。Src * SrcA + Dest * 1
-	kBlendModeSubtract,  // 減算。Dest * 1 - Src * SrcA
-	kBlendModeMultiply,  // 乗算。Src * 0 + Dest * Src
-	kBlendModeScreen,    // スクリーン。Src * (1 - Dest) + Dest * 1
-	kCountOfBlendMode,   // 利用してはいけない
-};
-
-D3D12_BLEND_DESC CreateBlendDesc(BlendMode mode)
-{
-	D3D12_BLEND_DESC desc{};
-	auto& rt = desc.RenderTarget[0];
-
-	// 全ての色要素を書き込む
-	rt.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-	// α値のブレンド設定は全モード共通
-	rt.SrcBlendAlpha = D3D12_BLEND_ONE;
-	rt.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	rt.DestBlendAlpha = D3D12_BLEND_ZERO;
-
-	if (mode == kBlendModeNone)
-	{
-		rt.BlendEnable = FALSE;
-		return desc;
-	}
-
-	rt.BlendEnable = TRUE;
-
-	switch (mode)
-	{
-	case kBlendModeNormal:
-		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		rt.BlendOp = D3D12_BLEND_OP_ADD;
-		rt.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
-		break;
-	case kBlendModeAdd:
-		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		rt.BlendOp = D3D12_BLEND_OP_ADD;
-		rt.DestBlend = D3D12_BLEND_ONE;
-		break;
-	case kBlendModeSubtract:
-		rt.SrcBlend = D3D12_BLEND_SRC_ALPHA;
-		rt.BlendOp = D3D12_BLEND_OP_REV_SUBTRACT;
-		rt.DestBlend = D3D12_BLEND_ONE;
-		break;
-	case kBlendModeMultiply:
-		rt.SrcBlend = D3D12_BLEND_ZERO;
-		rt.BlendOp = D3D12_BLEND_OP_ADD;
-		rt.DestBlend = D3D12_BLEND_SRC_COLOR;
-		break;
-	case kBlendModeScreen:
-		rt.SrcBlend = D3D12_BLEND_INV_DEST_COLOR;
-		rt.BlendOp = D3D12_BLEND_OP_ADD;
-		rt.DestBlend = D3D12_BLEND_ONE;
-		break;
-	default:
-		break;
-	}
-	return desc;
-}
 
 static std::filesystem::path GetExecutableDirectory()
 {
@@ -303,134 +159,6 @@ D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descrip
 	handleGPU.ptr += (descriptorSize * index);
 	return handleGPU;
 }
-
-MaterialData LoadMaterialTemplateFile(const std::string& directoryPath, const std::string& filename)
-{
-	// 1. 中で必要となる変数の宣言
-	MaterialData materialData; // 構築するMaterialData
-	std::string line; //ファイルから読んだ1行を格納するもの
-
-	// 2. ファイルを開く
-	std::ifstream file(directoryPath + "/" + filename); // ファイルを開く
-	assert(file.is_open()); // 開けなかったら止める
-
-	// 3. 実際にファイルを読み、MaterialDataを構築していく
-	while (std::getline(file, line))
-	{
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier;
-
-		// identifierに応じた処理
-		if (identifier == "map_Kd")
-		{
-			std::string textureFilename;
-			s >> textureFilename;
-			// 連結してファイルパスにする
-			materialData.textureFilePath = directoryPath + "/" + textureFilename;
-		}
-	}
-
-	// 4. MaterialDataを返す
-	return materialData;
-}
-
-
-ModelData LoadObjFile(const std::string& directoryPath, const std::string& filename)
-{
-	// 1. 中で必要となる変数の宣言
-	ModelData modelData; // 構築するModelData
-	std::vector<Vector4> positions; // 位置
-	std::vector<Vector3> normals;   // 法線
-	std::vector<Vector2> texcoords; // テクスチャ座標
-	std::string line; // ファイルを1行ずつ読むための変数
-
-	// 2. ファイルを開く
-	std::ifstream file(directoryPath + "/" + filename); // ファイルを開く
-	assert(file.is_open()); // 開けなかったら止める
-
-	// 3. 実際にファイルを読み、ModelDataに構築していく
-	while (std::getline(file, line))
-	{
-		std::string identifier;
-		std::istringstream s(line);
-		s >> identifier; // 先頭の識別子を読む
-
-		// identifierに応じた処理
-		if (identifier == "v")
-		{
-			Vector4 position;
-			s >> position.x >> position.y >> position.z;
-			position.w = 1.0f;
-			positions.push_back(position);
-		}
-		else if (identifier == "vt")
-		{
-			Vector2 texcoord;
-			s >> texcoord.x >> texcoord.y;
-			texcoord.y = 1.0f - texcoord.y;
-			texcoords.push_back(texcoord);
-		}
-		else if (identifier == "vn")
-		{
-			Vector3 normal;
-			s >> normal.x >> normal.y >> normal.z;
-			normals.push_back(normal);
-		}
-		else if (identifier == "f")
-		{
-			// 3頂点分を一時的に保存するための配列
-			VertexData triangle[3];
-
-			// 面は三角形限定。その他は未対応
-			for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex)
-			{
-				std::string vertexDefinition;
-				s >> vertexDefinition;
-
-				// 頂点の要素へのIndexは「位置/UV/法線」で格納されているので、分解してIndexを取得する
-				std::istringstream v(vertexDefinition);
-				uint32_t elementIndices[3];
-				for (int32_t element = 0; element < 3; ++element)
-				{
-					std::string index;
-					std::getline(v, index, '/'); // 区切りでインデックスを読んでいく
-					elementIndices[element] = std::stoi(index);
-				}
-
-				// 要素へのIndexから、実際の要素の値を取得する
-				Vector4 position = positions[elementIndices[0] - 1];
-				Vector2 texcoord = texcoords[elementIndices[1] - 1];
-				Vector3 normal = normals[elementIndices[2] - 1];
-
-				position.z *= -1.0f;
-				normal.z *= -1.0f;
-
-				VertexData vertex = { position, texcoord, normal };
-				modelData.vertices.push_back(vertex);
-				triangle[faceVertex] = { position,texcoord,normal };
-			}
-
-			// 頂点を逆順で登録することで、回り順を逆にする
-			modelData.vertices.push_back(triangle[2]);
-			modelData.vertices.push_back(triangle[1]);
-			modelData.vertices.push_back(triangle[0]);
-		}
-		else if (identifier == "mtllib")
-		{
-			// materialTemplateLibraryファイルの名前を取得する
-			std::string materialFilename;
-			s >> materialFilename;
-
-			// 基本的にobjファイルと同一階層にmtlは存在させるので、ディレクトリ名とファイル名を渡す
-			modelData.material = LoadMaterialTemplateFile(directoryPath, materialFilename);
-		}
-	}
-
-	// 4. ModelDataを返す
-	return modelData;
-}
-
 
 std::random_device seedGenerator;
 std::mt19937 randomEngine(seedGenerator());
@@ -558,50 +286,21 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	io.IniFilename = imguiIniPath.c_str();
 	io.Fonts->Build();
 #endif
+	// 個別オブジェクトの初期化でもTextureManagerを利用する。
+	TextureManager* textureManager = TextureManager::GetInstance();
+	textureManager->Initialize(directXBase);
+
+	// モデル類は通常の不透明描画、Particleは加算ブレンドで描画する
+	int currentBlendMode = kBlendModeNone;
+	int currentParticleBlendMode = kBlendModeAdd;
+
+	////////////////////////////// Particle用 ////////////////////////////
 	D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
 	descriptorRange[0].BaseShaderRegister = 0;
 	descriptorRange[0].NumDescriptors = 1;
 	descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	descriptorRange[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-
-	// RootParameterの設定
-	D3D12_ROOT_PARAMETER rootParameters[7] = {};
-
-	// [0] CBV  PixelShaderで利用
-	rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[0].Descriptor.ShaderRegister = 0;
-
-	// [1] CBV  VertexShaderで利用
-	rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-	rootParameters[1].Descriptor.ShaderRegister = 0;
-
-	// [2] DescriptorTable  PixelShaderで利用
-	rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
-	rootParameters[2].DescriptorTable.NumDescriptorRanges = _countof(descriptorRange);
-
-	rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;    // CBVを使う
-	rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL; // PixelShaderで使う
-	rootParameters[3].Descriptor.ShaderRegister = 1;                    // レジスタ番号1を使う
-
-	// カメラの位置（b2）。PixelShaderで使う
-	rootParameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[4].Descriptor.ShaderRegister = 2;
-
-	// [5] PointLight CBV (b3)
-	rootParameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[5].Descriptor.ShaderRegister = 3;
-
-	// [6] SpotLight CBV (b4)
-	rootParameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-	rootParameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	rootParameters[6].Descriptor.ShaderRegister = 4;
 
 	// StaticSamplerの設定
 	D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
@@ -614,122 +313,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	staticSamplers[0].ShaderRegister = 0;                              // レジスタ番号0を使う
 	staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-	// 4. RootSignatureDesc全体の結合
-	D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
-	descriptionRootSignature.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	descriptionRootSignature.pParameters = rootParameters;
-	descriptionRootSignature.NumParameters = _countof(rootParameters);
-	descriptionRootSignature.pStaticSamplers = staticSamplers;
-	descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
-
-
-	// シリアライズしてバイナリにする
-	Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob = nullptr;
-	Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
-
-	hr = D3D12SerializeRootSignature(&descriptionRootSignature,
-		D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob, &errorBlob);
-	if (FAILED(hr))
-	{
-		Logger::Log(logStream, reinterpret_cast<char*>(errorBlob->GetBufferPointer()));
-		assert(false);
-	}
-	// バイナリを元に生成
-	ComPtr<ID3D12RootSignature> rootSignature = nullptr;
-	hr = device->CreateRootSignature(0,
-		signatureBlob->GetBufferPointer(), signatureBlob->GetBufferSize(),
-		IID_PPV_ARGS(&rootSignature));
-	assert(SUCCEEDED(hr));
-
-	// InputLayout
-	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
-	inputElementDescs[0].SemanticName = "POSITION";
-	inputElementDescs[0].SemanticIndex = 0;
-	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-	inputElementDescs[1].SemanticName = "TEXCOORD";
-	inputElementDescs[1].SemanticIndex = 0;
-	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
-	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-	inputElementDescs[2].SemanticName = "NORMAL";
-	inputElementDescs[2].SemanticIndex = 0;
-	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
-	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
-
-	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
-	inputLayoutDesc.pInputElementDescs = inputElementDescs;
-	inputLayoutDesc.NumElements = _countof(inputElementDescs);
-
-	// RasterizerStateの設定
-	D3D12_RASTERIZER_DESC rasterizerDesc{};
-
-	// 裏面（時計回り）を表示しない
-	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
-
-	// 三角形の中を塗りつぶす
-	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
-
-	// Shaderをコンパイルする
-	Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Object3d.VS.hlsl", L"vs_6_0");
-	assert(vertexShaderBlob != nullptr);
-
-	Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Object3d.PS.hlsl", L"ps_6_0");
-	assert(pixelShaderBlob != nullptr);
-
-	// DepthStencilStateの設定
-	D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
-
-	// Depthの機能を有効化する
-	depthStencilDesc.DepthEnable = true;
-
-	// 書き込みします
-	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-
-	// 比較関数はLessEqual。つまり、近ければ描画される
-	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-
-	// PSOを生成する
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
-	graphicsPipelineStateDesc.pRootSignature = rootSignature.Get(); // RootSignature
-	graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;  // InputLayout
-	graphicsPipelineStateDesc.VS =
-	{ vertexShaderBlob->GetBufferPointer(), vertexShaderBlob->GetBufferSize() }; // VertexShader
-	graphicsPipelineStateDesc.PS =
-	{ pixelShaderBlob->GetBufferPointer(),pixelShaderBlob->GetBufferSize() }; // PixelShader
-	graphicsPipelineStateDesc.RasterizerState = rasterizerDesc;  // RasterizerState
-
-	// DepthStencilStateの設定
-	graphicsPipelineStateDesc.DepthStencilState = depthStencilDesc;
-	graphicsPipelineStateDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
-
-	// 書き込むRTVの情報
-	graphicsPipelineStateDesc.NumRenderTargets = 1;
-	graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
-
-	// 利用するトポロジ（形状）のタイプ。三角形
-	graphicsPipelineStateDesc.PrimitiveTopologyType =
-		D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-
-	// どのように画面に色を打ち込むかの設定（気にしなくていい）
-	graphicsPipelineStateDesc.SampleDesc.Count = 1;
-	graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
-
-	// 実際に生成
-	// BlendModeごとにPSOを生成する（BlendModeを変える = PSOを変える）
-	ComPtr<ID3D12PipelineState> graphicsPipelineStates[kCountOfBlendMode];
-	for (int i = 0; i < kCountOfBlendMode; ++i)
-	{
-		graphicsPipelineStateDesc.BlendState = CreateBlendDesc(static_cast<BlendMode>(i));
-		hr = device->CreateGraphicsPipelineState(&graphicsPipelineStateDesc,
-			IID_PPV_ARGS(&graphicsPipelineStates[i]));
-		assert(SUCCEEDED(hr));
-	}
-
-	// モデル類は通常の不透明描画、Particleは加算ブレンドで描画する
-	int currentBlendMode = kBlendModeNone;
-	int currentParticleBlendMode = kBlendModeAdd;
-
-	////////////////////////////// Particle用 ////////////////////////////
 	// Instancing用のStructuredBuffer(SRV)をVertexShaderのt0で使うためのDescriptorRange
 	D3D12_DESCRIPTOR_RANGE descriptorRangeForInstancing[1] = {};
 	descriptorRangeForInstancing[0].BaseShaderRegister = 0;   // 0から始まる
@@ -786,13 +369,74 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	Microsoft::WRL::ComPtr<IDxcBlob> particlePixelShaderBlob = directXBase->CompileShader(L"Resources/Shaders/Particle.PS.hlsl", L"ps_6_0");
 	assert(particlePixelShaderBlob != nullptr);
 
-	// Particle用のPSO（Object3d用の設定をコピーして、RootSignatureとShaderだけ差し替える）
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineStateDesc = graphicsPipelineStateDesc;
-	particlePipelineStateDesc.pRootSignature = particleRootSignature.Get();
-	// Particleは深度を書き込まない（DepthTestはそのまま行うので、不透明なObjectとの前後関係は保たれる）
+	// Particle専用のPSOを生成する。
+	// InputLayout
+	D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
+	inputElementDescs[0].SemanticName = "POSITION";
+	inputElementDescs[0].SemanticIndex = 0;
+	inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[1].SemanticName = "TEXCOORD";
+	inputElementDescs[1].SemanticIndex = 0;
+	inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+	inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+	inputElementDescs[2].SemanticName = "NORMAL";
+	inputElementDescs[2].SemanticIndex = 0;
+	inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+	inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
+	D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
+	inputLayoutDesc.pInputElementDescs = inputElementDescs;
+	inputLayoutDesc.NumElements = _countof(inputElementDescs);
+
+	// RasterizerStateの設定
+	D3D12_RASTERIZER_DESC rasterizerDesc{};
+
+	// 裏面（時計回り）を表示しない
+	rasterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+
+	// 三角形の中を塗りつぶす
+	rasterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+
+	// DepthStencilStateの設定
+	D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
+
+	// Depthの機能を有効化する
+	depthStencilDesc.DepthEnable = true;
+
+	// 書き込みします
+	depthStencilDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+
+	// 比較関数はLessEqual。つまり、近ければ描画される
+	depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+
+	// PSOを生成する
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC particlePipelineStateDesc{};
+	particlePipelineStateDesc.pRootSignature = particleRootSignature.Get(); // RootSignature
+	particlePipelineStateDesc.InputLayout = inputLayoutDesc;  // InputLayout
+	particlePipelineStateDesc.VS =
+	{ particleVertexShaderBlob->GetBufferPointer(), particleVertexShaderBlob->GetBufferSize() }; // VertexShader
+	particlePipelineStateDesc.PS =
+	{ particlePixelShaderBlob->GetBufferPointer(),particlePixelShaderBlob->GetBufferSize() }; // PixelShader
+	particlePipelineStateDesc.RasterizerState = rasterizerDesc;  // RasterizerState
+
+	// DepthStencilStateの設定
+	particlePipelineStateDesc.DepthStencilState = depthStencilDesc;
+	particlePipelineStateDesc.DSVFormat = DXGI_FORMAT_D24_UNORM_S8_UINT;
+
+	// 書き込むRTVの情報
+	particlePipelineStateDesc.NumRenderTargets = 1;
+	particlePipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+	// 利用するトポロジ（形状）のタイプ。三角形
+	particlePipelineStateDesc.PrimitiveTopologyType =
+		D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+	// どのように画面に色を打ち込むかの設定（気にしなくていい）
+	particlePipelineStateDesc.SampleDesc.Count = 1;
+	particlePipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+
 	particlePipelineStateDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	particlePipelineStateDesc.VS = { particleVertexShaderBlob->GetBufferPointer(), particleVertexShaderBlob->GetBufferSize() };
-	particlePipelineStateDesc.PS = { particlePixelShaderBlob->GetBufferPointer(), particlePixelShaderBlob->GetBufferSize() };
 
 	ComPtr<ID3D12PipelineState> particlePipelineStates[kCountOfBlendMode];
 	for (int i = 0; i < kCountOfBlendMode; ++i)
@@ -803,156 +447,33 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		assert(SUCCEEDED(hr));
 	}
 
-	////////////////////////////// モデル読み込み ////////////////////////////
-	ModelData modelData = LoadObjFile("Resources", "plane.obj");
-	ModelData terrainData = LoadObjFile("Resources", "terrain.obj");
-	//ModelData modelDataAxis = LoadObjFile("Resources", "axis.obj");
-
-	// 頂点リソースを作る
-	ComPtr<ID3D12Resource> vertexResourceModel = directXBase->CreateBufferResource(sizeof(VertexData) * modelData.vertices.size());
-
-	// 頂点バッファビューを作成する
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferViewModel{};
-	vertexBufferViewModel.BufferLocation = vertexResourceModel->GetGPUVirtualAddress(); // リソースの先頭アドレスから使う
-	vertexBufferViewModel.SizeInBytes = UINT(sizeof(VertexData) * modelData.vertices.size()); // 使用するリソースのサイズは頂点のサイズ
-	vertexBufferViewModel.StrideInBytes = sizeof(VertexData);
-
-	// 頂点リソースにデータを書き込む
-	VertexData* vertexDataModel = nullptr;
-	vertexResourceModel->Map(0, nullptr, reinterpret_cast<void**>(&vertexDataModel));
-	std::memcpy(vertexDataModel, modelData.vertices.data(), sizeof(VertexData) * modelData.vertices.size()); // 頂点データをリソースにコピー
-
-	ComPtr<ID3D12Resource> terrainVertexResource = directXBase->CreateBufferResource(
-		sizeof(VertexData) * terrainData.vertices.size());
-	D3D12_VERTEX_BUFFER_VIEW terrainVertexBufferView{};
-	terrainVertexBufferView.BufferLocation = terrainVertexResource->GetGPUVirtualAddress();
-	terrainVertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * terrainData.vertices.size());
-	terrainVertexBufferView.StrideInBytes = sizeof(VertexData);
-	VertexData* terrainVertexData = nullptr;
-	hr = terrainVertexResource->Map(0, nullptr, reinterpret_cast<void**>(&terrainVertexData));
-	assert(SUCCEEDED(hr));
-	std::memcpy(terrainVertexData, terrainData.vertices.data(), sizeof(VertexData) * terrainData.vertices.size());
-
-
-	/////////////////////////////////////////////////////////////////////////
-
-
-	///////////////////// 頂点リソース用のヒープの設定
+	// 同じ共通設定から、独立したモデル・頂点・定数バッファを持つ3Dオブジェクトを生成する。
+	ModelManager* modelManager = ModelManager::GetInstance();
+	modelManager->Initialize(directXBase);
+	modelManager->LoadModel("plane.obj");
+	modelManager->LoadModel("terrain.obj");
+	ModelBase& modelBase = *modelManager->GetModelBase();
+	Model& planeModel = *modelManager->FindModel("plane.obj");
+	Model& terrainModel = *modelManager->FindModel("terrain.obj");
+	Object3DBase planeObject;
+	planeObject.Initialize(directXBase);
+	planeObject.SetModel("plane.obj");
+	Object3DBase terrainObject;
+	terrainObject.Initialize(directXBase);
+	terrainObject.SetModel("terrain.obj");
+	terrainObject.GetTransform() = {}; // 地形は原点・等倍のまま描く。
+	// Particleはplaneの頂点を借り、専用のインスタンシング描画を行う。
+	const auto& modelData = planeModel.GetModelData();
+	const auto& vertexBufferViewModel = planeModel.GetVertexBufferView();
 
 	const uint32_t kSubdivision = 32;
 	const uint32_t kVertexCount = kSubdivision * kSubdivision * 6;
 
-	ComPtr<ID3D12Resource> vertexResource = directXBase->CreateBufferResource(sizeof(VertexData) * kVertexCount);
-
-	// マテリアル用のリソースを作る。今回はcolor1つ分のサイズを用意する
-	ComPtr<ID3D12Resource> materialResource = directXBase->CreateBufferResource(sizeof(Material));
-
-	// マテリアルにデータを書き込む
-	Material* materialData = nullptr;
-
-	// 書き込むためのアドレスを取得
-	hr = materialResource->Map(0, nullptr, reinterpret_cast<void**>(&materialData));
-	assert(SUCCEEDED(hr));
-
-	// WHITE
-	materialData->color = Vector4{ 1.0f, 1.0f, 1.0f, 1.0f };
-	materialData->enableLighting = 1;
-	materialData->shininess = 40.0f;
-	materialData->specularColor = { 0.25f, 0.25f, 0.25f };
-	materialData->useBlinnPhong = 1;
-
-
-	// ImGuiでの初期化
-	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-
-	// WVP用のリソースを作る。Matrix4x4 1つ分のサイズを用意する
-	ComPtr<ID3D12Resource> wvpResource = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
-	ComPtr<ID3D12Resource> terrainWvpResource = directXBase->CreateBufferResource(sizeof(TransformationMatrix));
-
-	// データを書き込む
-	Matrix4x4* wvpData = nullptr;
-
-	TransformationMatrix* transformationMatrixData = nullptr;
-
-	// 書き込むためのアドレスを取得
-
-	wvpResource->Map(0, nullptr, reinterpret_cast<void**>(&transformationMatrixData));
-	TransformationMatrix* terrainTransformationData = nullptr;
-	hr = terrainWvpResource->Map(0, nullptr, reinterpret_cast<void**>(&terrainTransformationData));
-	assert(SUCCEEDED(hr));
-
-	// 単位行列を書き込んでおく
-	transformationMatrixData->WVP = Math::MakeIdentity4x4();
-	transformationMatrixData->World = Math::MakeIdentity4x4();
-	transformationMatrixData->WorldInverseTranspose = Math::MakeIdentity4x4();
-	terrainTransformationData->WVP = Math::MakeIdentity4x4();
-	terrainTransformationData->World = Math::MakeIdentity4x4();
-	terrainTransformationData->WorldInverseTranspose = Math::MakeIdentity4x4();
-
-	// VBV
-	// 頂点バッファビューを作成する
-	D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
-
-	// リソールの先頭のアドレスから使う
-	vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-
-	// 使用するリソースのサイズは頂点6つ分のサイズ
-	vertexBufferView.SizeInBytes = sizeof(VertexData) * kVertexCount;
-
-	// 頂点1つ分のサイズ
-	vertexBufferView.StrideInBytes = sizeof(VertexData);
-
-	// 頂点リソースにデータを書き込む
-	VertexData* vertexData = nullptr;
-
-	// 書き込むためのアドレスを取得
-	hr = vertexResource->Map(0, nullptr, reinterpret_cast<void**>(&vertexData));
-	assert(SUCCEEDED(hr));
-
-	ComPtr<ID3D12Resource> directionalLightResource = nullptr;
-	DirectionalLight* directionalLightData = nullptr;
-
-	directionalLightResource = directXBase->CreateBufferResource(sizeof(DirectionalLight));
-
-	// MapしてCPU側のアドレスを取得し、初期データを書き込む
-	directionalLightResource->Map(0, nullptr, reinterpret_cast<void**>(&directionalLightData));
-
-	directionalLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };      // 白色の光
-	directionalLightData->direction = { 0.0f, -1.0f, 1.0f };     // 斜め下・手前方向へ進む光
-	directionalLightData->intensity = 0.0f;
-
-	ComPtr<ID3D12Resource> pointLightResource = directXBase->CreateBufferResource(sizeof(PointLight));
-	PointLight* pointLightData = nullptr;
-	hr = pointLightResource->Map(0, nullptr, reinterpret_cast<void**>(&pointLightData));
-	assert(SUCCEEDED(hr));
-	pointLightData->color = { 1.0f, 0.85f, 0.65f, 1.0f };
-	pointLightData->position = { 0.0f, 2.0f, -3.0f };
-	pointLightData->intensity = 0.0f;
-	pointLightData->radius = 10.0f;
-	pointLightData->decay = 2.0f;
-	pointLightData->padding[0] = 0.0f;
-	pointLightData->padding[1] = 0.0f;
-
-	ComPtr<ID3D12Resource> spotLightResource = directXBase->CreateBufferResource(sizeof(SpotLight));
-	SpotLight* spotLightData = nullptr;
-	hr = spotLightResource->Map(0, nullptr, reinterpret_cast<void**>(&spotLightData));
-	assert(SUCCEEDED(hr));
-	spotLightData->color = { 1.0f, 1.0f, 1.0f, 1.0f };
-	spotLightData->position = { 2.0f, 1.25f, 0.0f };
-	spotLightData->intensity = 4.0f;
-	Vector3 initialSpotDirection = { -1.0f, -1.0f, 0.0f };
-	spotLightData->direction = Vector3::Normalize(initialSpotDirection);
-	spotLightData->distance = 7.0f;
-	spotLightData->decay = 2.0f;
-	spotLightData->cosAngle = std::cos(std::numbers::pi_v<float> / 3.0f);
-	spotLightData->cosFalloffStart = std::cos(std::numbers::pi_v<float> / 6.0f);
-	spotLightData->padding[0] = 0.0f;
-
-	// カメラのワールド位置を送るためのResource。Mapしたままにして、毎フレーム書き換える
-	ComPtr<ID3D12Resource> cameraResource = directXBase->CreateBufferResource(sizeof(CameraForGPU));
-	CameraForGPU* cameraData = nullptr;
-	cameraResource->Map(0, nullptr, reinterpret_cast<void**>(&cameraData));
-	cameraData->worldPosition = { 0.0f, 0.0f, 0.0f };
+	// 手続き生成した球も、モデルデータを渡して同じ個別クラスで扱う。
+	Model::ModelData sphereModel;
+	sphereModel.material.textureFilePath = "Resources/monsterBall.png";
+	sphereModel.vertices.resize(kVertexCount);
+	VertexData* vertexData = sphereModel.vertices.data();
 
 	const float pi = 3.14159265f;
 	float latitudeStep = pi / kSubdivision;
@@ -1036,10 +557,124 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 	}
 
-	// Transform変数を作る
-	FKEngine::Transform transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
+	Model sphereAppearance;
+	sphereAppearance.Initialize(&modelBase, std::move(sphereModel));
+	Object3DBase sphereObject;
+	sphereObject.Initialize(directXBase);
+	sphereObject.SetModel(&sphereAppearance);
+	// 同じModelをもう1つの配置で使う。頂点・材質・テクスチャを再作成しない。
+	Object3DBase secondSphere;
+	secondSphere.Initialize(directXBase);
+	secondSphere.SetModel(&sphereAppearance);
+	secondSphere.SetTranslate({3.0f, 1.0f, 0.0f});
+	// ImGuiはCPU側の設定を編集し、Updateで各オブジェクトのGPUバッファへ反映する。
+	auto& transform = sphereObject.GetTransform();
+	auto& cameraTransform = sphereObject.GetCameraTransform();
+	auto* materialData = &sphereAppearance.GetMaterial();
+	auto* directionalLightData = &sphereObject.GetDirectionalLight();
+	auto* pointLightData = &sphereObject.GetPointLight();
+	auto* spotLightData = &sphereObject.GetSpotLight();
+	float colorArray[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-	FKEngine::Transform cameraTransform{ {1.0f,1.0f,1.0f},{0.38f,0.0f,0.0f},{0.0f,6.0f,-16.0f} };
+	// Particleのマテリアルは専用バッファ。3Dオブジェクトの定数バッファとは別に保持する。
+	ComPtr<ID3D12Resource> materialResource = directXBase->CreateBufferResource(256);
+	Material* particleMaterialData = nullptr;
+	hr = materialResource->Map(0, nullptr, reinterpret_cast<void**>(&particleMaterialData));
+	if (FAILED(hr)) {
+		Logger::Log(logStream, "Failed to map particle material.");
+		std::terminate();
+	}
+
+	if (smokeTest) {
+		auto requireObject = [](bool valid, const char* message) {
+			if (!valid) { throw std::runtime_error(message); }
+		};
+		requireObject(planeModel.GetModelData().vertices.size() == 12 &&
+			terrainModel.GetModelData().vertices.size() == 5292 &&
+			sphereAppearance.GetModelData().vertices.size() == kVertexCount, "3D model vertex counts changed.");
+		requireObject(planeObject.GetDirectXBase() == directXBase &&
+			planeModel.GetVertexBufferView().BufferLocation != terrainModel.GetVertexBufferView().BufferLocation &&
+			planeModel.GetVertexBufferView().BufferLocation != sphereAppearance.GetVertexBufferView().BufferLocation,
+			"3D objects must use the same DirectX device and own distinct vertex buffers.");
+		const auto originalTransform = planeObject.GetTransform();
+		const auto originalMaterial = planeModel.GetMaterial();
+		planeObject.GetTransform() = { {2.0f, 3.0f, 4.0f}, {}, {5.0f, 6.0f, 7.0f} };
+		planeModel.GetMaterial().color.x = 0.25f;
+		planeObject.Update(Math::MakeIdentity4x4(), Math::MakeIdentity4x4());
+		const auto& matrix = planeObject.GetTransformationMatrix();
+		requireObject(matrix.World.m[0][0] == 2.0f && matrix.World.m[1][1] == 3.0f &&
+			matrix.World.m[2][2] == 4.0f && matrix.World.m[3][0] == 5.0f &&
+			matrix.WVP.m[3][1] == 6.0f && matrix.WVP.m[3][2] == 7.0f &&
+			std::fabs(matrix.WorldInverseTranspose.m[0][0] - 0.5f) < 0.0001f &&
+			std::fabs(matrix.WorldInverseTranspose.m[1][1] - 1.0f / 3.0f) < 0.0001f &&
+			std::fabs(matrix.WorldInverseTranspose.m[2][2] - 0.25f) < 0.0001f,
+			"3D nonuniform scale, translation or normal transformation failed.");
+		requireObject(terrainObject.GetTransform().translate.y == 0.0f &&
+			sphereObject.GetTransform().translate.y == 1.0f &&
+			terrainModel.GetMaterial().color.x == 1.0f && sphereAppearance.GetMaterial().color.x == 1.0f,
+			"Editing one 3D object changed another object.");
+		planeObject.GetTransform() = originalTransform;
+		planeModel.GetMaterial() = originalMaterial;
+		planeObject.Update();
+		const Matrix4x4 defaultWvp = planeObject.GetTransformationMatrix().WVP;
+		const auto& camera = planeObject.GetCameraTransform();
+		planeObject.Update(Math::Inverse(Math::MakeAffineMatrix(camera.scale, camera.rotate, camera.translate)),
+			Math::MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f));
+		for (int row = 0; row < 4; ++row) {
+			for (int column = 0; column < 4; ++column) {
+				requireObject(std::fabs(defaultWvp.m[row][column] - planeObject.GetTransformationMatrix().WVP.m[row][column]) < 0.0001f,
+					"3D internal and supplied camera matrices disagree.");
+			}
+		}
+		requireObject(secondSphere.GetModel() == sphereObject.GetModel() && secondSphere.GetTranslate().x == 3.0f &&
+			sphereObject.GetTranslate().x == 0.0f, "Shared Model did not preserve independent placements.");
+		secondSphere.SetScale({0.75f, 0.75f, 0.75f});
+		secondSphere.SetRotate({0.0f, 0.5f, 0.0f});
+		requireObject(secondSphere.GetScale().x == 0.75f && secondSphere.GetRotate().y == 0.5f &&
+			sphereObject.GetScale().x == 1.0f, "Transform setters affected another object.");
+		secondSphere.SetModel(nullptr);
+		secondSphere.Update();
+		secondSphere.Draw(); // Model未指定時は描画コマンドを発行しない。
+		secondSphere.SetModel(&sphereAppearance);
+		Model retryModel;
+		bool rejectedMissing = false;
+		try { retryModel.Initialize(&modelBase, "Resources", "__missing_model__.obj"); }
+		catch (const std::runtime_error&) { rejectedMissing = true; }
+		requireObject(rejectedMissing && retryModel.GetDirectXBase() == nullptr, "Missing OBJ was not rejected cleanly.");
+		auto brokenModel = planeModel.GetModelData();
+		brokenModel.material.textureFilePath = "Resources/__missing_texture__.png";
+		bool rejectedTexture = false;
+		try { retryModel.Initialize(&modelBase, std::move(brokenModel)); }
+		catch (const std::runtime_error&) { rejectedTexture = true; }
+		requireObject(rejectedTexture && retryModel.GetDirectXBase() == nullptr &&
+			retryModel.GetVertexBufferView().BufferLocation == 0, "Model initialization did not roll back.");
+		retryModel.Initialize(&modelBase);
+		retryModel.Finalize();
+		const size_t cachedModels = modelManager->GetModelCount();
+		Model* cachedPlane = modelManager->FindModel("plane.obj");
+		modelManager->LoadModel("./Resources/../Resources/plane.obj");
+		modelManager->LoadModel(std::filesystem::absolute("Resources/plane.obj").string());
+		modelManager->LoadModel("Resources/PLANE.OBJ");
+		requireObject(modelManager->GetModelCount() == cachedModels &&
+			modelManager->FindModel("Resources/PLANE.OBJ") == cachedPlane, "Model cache duplicated an equivalent path.");
+		bool managerRejectedMissing = false;
+		try { modelManager->LoadModel("__missing_model__.obj"); }
+		catch (const std::runtime_error&) { managerRejectedMissing = true; }
+		requireObject(managerRejectedMissing && modelManager->GetModelCount() == cachedModels &&
+			modelManager->FindModel("__missing_model__.obj") == nullptr, "Failed model load changed the cache.");
+		secondSphere.SetModel("plane.obj");
+		requireObject(secondSphere.GetModel() == cachedPlane && sphereObject.GetModel() == &sphereAppearance,
+			"Path model switching changed another placement.");
+		secondSphere.SetModel("terrain.obj");
+		requireObject(secondSphere.GetModel() == &terrainModel, "Second model selection failed.");
+		secondSphere.SetModel("__missing_model__.obj");
+		secondSphere.Draw();
+		requireObject(secondSphere.GetModel() == nullptr, "Missing model must clear the assignment.");
+		secondSphere.SetModel(&sphereAppearance);
+		Logger::Log(logStream, "ModelManager smoke: path cache, failed-load rollback, model switching and missing lookup passed.");
+		Logger::Log(logStream, "Model smoke: shared appearance, independent placements, null assignment and recovery passed.");
+		Logger::Log(logStream, "Object3D smoke: independent models/materials, transforms/normals, camera and failed-init recovery passed.");
+	}
 
 	// デバッグカメラ
 	DebugCamera debugCamera;
@@ -1051,13 +686,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 	// パスで共有するテクスチャ管理。Spriteと3Dモデルから同じ画像を参照できる。
-	TextureManager* textureManager = TextureManager::GetInstance();
-	textureManager->Initialize(directXBase);
 	textureManager->LoadTexture("Resources/uvChecker.png");
-	textureManager->LoadTexture(modelData.material.textureFilePath);
 	textureManager->LoadTexture("Resources/circle.png");
 	textureManager->LoadTexture("Resources/monsterBall.png");
-	textureManager->LoadTexture(terrainData.material.textureFilePath);
 
 	if (smokeTest) {
 		const size_t count = textureManager->GetTextureCount();
@@ -1106,11 +737,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 
 	// SRVの割り当て・生成はTextureManagerに集約する。
-	const auto textureSrvHandleGPU = textureManager->GetSrvHandleGPU("Resources/uvChecker.png");
-	const auto textureSrvHandleGPU2 = textureManager->GetSrvHandleGPU(modelData.material.textureFilePath);
 	const auto textureSrvHandleGPU3 = textureManager->GetSrvHandleGPU("Resources/circle.png");
-	const auto textureSrvHandleGPU4 = textureManager->GetSrvHandleGPU("Resources/monsterBall.png");
-	const auto terrainTextureSrvHandleGPU = textureManager->GetSrvHandleGPU(terrainData.material.textureFilePath);
 	// 共通設定は1つ、スプライト1枚ごとのデータは別インスタンスにする。
 	SpriteBase spriteBase;
 	spriteBase.Initialize(directXBase, float(kClientWidth), float(kClientHeight));
@@ -1159,6 +786,66 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			Logger::Log(logStream, "Texture-index initialization did not apply the GPU image size.");
 			std::terminate();
 		}
+		// 静止フレーム・同値setter・変更時の再更新を確認する。
+		bool optimizationOK = !indexedProbe.IsDirty();
+		indexedProbe.Update();
+		indexedProbe.SetPosition(indexedProbe.GetPosition());
+		indexedProbe.SetSize(indexedProbe.GetSize());
+		indexedProbe.SetRotation(indexedProbe.GetRotation());
+		indexedProbe.SetColor(indexedProbe.GetColor());
+		indexedProbe.SetAnchorPoint(indexedProbe.GetAnchorPoint());
+		indexedProbe.SetFlipX(indexedProbe.GetFlipX());
+		indexedProbe.SetFlipY(indexedProbe.GetFlipY());
+		indexedProbe.SetUVPosition(indexedProbe.GetUVPosition());
+		indexedProbe.SetUVScale(indexedProbe.GetUVScale());
+		indexedProbe.SetUVRotation(indexedProbe.GetUVRotation());
+		indexedProbe.SetTextureLeftTop(indexedProbe.GetTextureLeftTop());
+		indexedProbe.SetTextureSize(indexedProbe.GetTextureSize());
+		indexedProbe.SetTextureIndex(index);
+		optimizationOK = optimizationOK && !indexedProbe.IsDirty();
+		indexedProbe.SetPosition({ 12.0f, 34.0f });
+		optimizationOK = optimizationOK && indexedProbe.IsDirty();
+		indexedProbe.Update();
+		optimizationOK = optimizationOK && !indexedProbe.IsDirty();
+		indexedProbe.SetColor({ 0.2f, 0.3f, 0.4f, 0.5f });
+		optimizationOK = optimizationOK && indexedProbe.IsDirty();
+		indexedProbe.Update();
+		optimizationOK = optimizationOK && !indexedProbe.IsDirty();
+
+		indexedProbe.SetTextureLeftTop({ float(desc.Width) * 0.125f, float(desc.Height) * 0.25f });
+		indexedProbe.SetTextureSize({ float(desc.Width) * 0.25f, float(desc.Height) * 0.5f });
+		indexedProbe.SetUVScale({ 0.8f, -1.2f });
+		indexedProbe.SetUVRotation(0.3f);
+		indexedProbe.SetUVPosition({ 0.05f, 0.1f });
+		indexedProbe.Update();
+		const std::array<Vector2, 5> uvSamples{
+			Vector2{ 0.0f, 0.0f }, Vector2{ 1.0f, 0.0f }, Vector2{ 0.0f, 1.0f },
+			Vector2{ 1.0f, 1.0f }, Vector2{ 0.5f, 0.5f }
+		};
+		for (const Vector2& sample : uvSamples) {
+			// 従来方式：頂点で切り出し、その後シェーダーで倍率・回転・移動。
+			const float u = (0.125f + sample.x * 0.25f) * 0.8f;
+			const float v = (0.25f + sample.y * 0.5f) * -1.2f;
+			const float expectedU = u * std::cos(0.3f) - v * std::sin(0.3f) + 0.05f;
+			const float expectedV = u * std::sin(0.3f) + v * std::cos(0.3f) + 0.1f;
+			const Vector3 actual = Math::Transform({ sample.x, sample.y, 0.0f }, indexedProbe.GetUVTransform());
+			optimizationOK = optimizationOK && std::abs(actual.x - expectedU) < 0.00001f &&
+				std::abs(actual.y - expectedV) < 0.00001f;
+		}
+		// 共通射影の変更は、Sprite自身に変更がなくてもWVPを再計算する。
+		spriteBase.SetScreenSize(float(kClientWidth) * 2.0f, float(kClientHeight));
+		optimizationOK = optimizationOK && indexedProbe.IsDirty();
+		indexedProbe.Update();
+		const uint64_t revision = spriteBase.GetProjectionRevision();
+		spriteBase.SetScreenSize(float(kClientWidth) * 2.0f, float(kClientHeight));
+		optimizationOK = optimizationOK && !indexedProbe.IsDirty() && spriteBase.GetProjectionRevision() == revision;
+		spriteBase.SetScreenSize(float(kClientWidth), float(kClientHeight));
+		indexedProbe.Update();
+		if (!optimizationOK) {
+			Logger::Log(logStream, "Sprite dirty flags, UV equivalence or shared projection regression failed.");
+			std::terminate();
+		}
+		Logger::Log(logStream, "Sprite optimization: clean/same-value updates, UV equivalence and projection invalidation passed.");
 		deferredSmokeSprite = std::make_unique<Sprite>();
 		deferredSmokeSprite->Initialize(&spriteBase);
 		if (deferredSmokeSprite->HasTexture()) { std::terminate(); }
@@ -1266,6 +953,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		{
 			// 検証モードでは、描画フレームをまたいだ生成・複製・削除・再生成を確認する。
 			if (smokeTest) {
+				// plane単体とParticleの両描画経路、およびデバッグカメラ経路を実行する。
+				// 同じ配置で、別モデルへの差し替えもフレームをまたいで描画する。
+				if (smokeTestFrames == 0) { secondSphere.SetModel("plane.obj"); }
+				else if (smokeTestFrames == 1) { secondSphere.SetModel("terrain.obj"); }
+				else { secondSphere.SetModel(&sphereAppearance); }
+				useInstancing = smokeTestFrames != 0;
+				isDebugCameraActive = smokeTestFrames == 1;
 				if (smokeTestFrames == 0) {
 					Sprite& boundsCheck = *sprites.front();
 					const auto& imageBounds = textureManager->GetMetadata(boundsCheck.GetTextureIndex());
@@ -1400,6 +1094,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Separator();
 			ImGui::Text("モンスターボール");
 			ImGui::Checkbox("表示する", &showBall);
+			const char* modelChoices[] = { "球（共有モデル）", "plane.obj", "terrain.obj" };
+			int selectedModel = secondSphere.GetModel() == &planeModel ? 1 : secondSphere.GetModel() == &terrainModel ? 2 : 0;
+			if (ImGui::Combo("2体目のモデル", &selectedModel, modelChoices, IM_ARRAYSIZE(modelChoices))) {
+				if (selectedModel == 0) { secondSphere.SetModel(&sphereAppearance); }
+				else { secondSphere.SetModel(selectedModel == 1 ? "plane.obj" : "terrain.obj"); }
+			}
 			ImGui::DragFloat3("位置", &transform.translate.x, 0.05f);
 			// 全成分を同じ値でスケールする（X,Y,Zが同じ値になる）
 			float uniformScale = transform.scale.x;
@@ -1645,13 +1345,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Render();
 #endif
 
-			//transform.rotate.y += 0.01f;
-
-
-
-			// オブジェクトのワールド行列
-			Matrix4x4 worldMatrix = Math::MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-
 			// カメラの行列（デバッグカメラが有効な場合はそちらを使用）
 			Matrix4x4 viewMatrix{};
 			if (isDebugCameraActive)
@@ -1664,28 +1357,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				viewMatrix = Math::Inverse(cameraMatrix); // カメラの逆行列がビュー行列
 			}
 
-			// ビュー行列の逆行列がカメラのワールド行列。その平行移動成分がカメラのワールド位置
-			{
-				Matrix4x4 cameraWorldMatrix = Math::Inverse(viewMatrix);
-				cameraData->worldPosition = { cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2] };
-			}
-
-
 			// 投影行列
 			Matrix4x4 projectionMatrix = Math::MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
-
-			// 行列の合成
-			Matrix4x4 worldViewProjectionMatrix = Math::Multiply(worldMatrix, Math::Multiply(viewMatrix, projectionMatrix));
-
-			// 定数バッファへ書き込み
-			transformationMatrixData->WVP = worldViewProjectionMatrix;
-			transformationMatrixData->World = worldMatrix;
-			// 法線用。非均一スケールでも法線が面に対して垂直のままになる
-			transformationMatrixData->WorldInverseTranspose = Math::Transpose(Math::Inverse(worldMatrix));
-			const Matrix4x4 terrainWorldMatrix = Math::MakeIdentity4x4();
-			terrainTransformationData->WVP = Math::Multiply(terrainWorldMatrix, Math::Multiply(viewMatrix, projectionMatrix));
-			terrainTransformationData->World = terrainWorldMatrix;
-			terrainTransformationData->WorldInverseTranspose = Math::MakeIdentity4x4();
 
 			// Instancing用のTransformationMatrixを更新する
 			Matrix4x4 viewProjectionMatrix = Math::Multiply(viewMatrix, projectionMatrix);
@@ -1772,57 +1445,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			materialData->color.z = colorArray[2];
 			materialData->color.w = colorArray[3];
 
+			planeObject.GetTransform() = transform;
+			planeModel.SetTexture(useMonsterBall ? modelData.material.textureFilePath : "Resources/uvChecker.png");
+			for (Object3DBase* object : { &sphereObject, &planeObject, &terrainObject, &secondSphere }) {
+				if (object != &sphereObject) {
+					// 既存のUI操作を全モデルへ反映。バッファ自体は個別に所有する。
+					object->GetModel()->GetMaterial() = *materialData;
+					object->GetDirectionalLight() = *directionalLightData;
+					object->GetPointLight() = *pointLightData;
+					object->GetSpotLight() = *spotLightData;
+					object->GetCameraTransform() = cameraTransform;
+				}
+				object->Update(viewMatrix, projectionMatrix);
+			}
+			*particleMaterialData = *materialData;
+
 			// 指定した色で画面全体をクリアする
 			float clearColor[] = { 0.1f,0.25f,0.5f,1.0f };
 			directXBase->PreDraw(clearColor);
 
-			// RootSignatureを設定。PSOに設定しているけど別途設定が必要
-			commandList->SetGraphicsRootSignature(rootSignature.Get());
-			commandList->SetPipelineState(graphicsPipelineStates[currentBlendMode].Get());     // PSOを設定
-			// 形状を設定。PSOに設定しているものとはまた別。同じものを設定すると考えておけばよい
-			commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-
-			// 探索用のDescriptorHeapの設定
-			ComPtr<ID3D12DescriptorHeap> descriptorHeaps[] = { srvDescriptorHeap };
-			commandList->SetDescriptorHeaps(1, descriptorHeaps->GetAddressOf());
-			// マテリアルCBufferの場所を設定
-			commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(1, terrainWvpResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootDescriptorTable(2, terrainTextureSrvHandleGPU);
-			commandList->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
-			// カメラとPointLightの定数バッファ
-			commandList->SetGraphicsRootConstantBufferView(4, cameraResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(5, pointLightResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootConstantBufferView(6, spotLightResource->GetGPUVirtualAddress());
-
-			// 地形を描画する
-			commandList->IASetVertexBuffers(0, 1, &terrainVertexBufferView);
-			commandList->DrawInstanced(UINT(terrainData.vertices.size()), 1, 0, 0);
-
-			// 以降は既存モデルとモンスターボール用の変換・テクスチャに戻す
-			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
-			commandList->SetGraphicsRootDescriptorTable(2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
-
-			/////////////////// 三角形用の描画
-			//commandList->IASetVertexBuffers(0, 1, &vertexBufferView); //  球のVBVを設定
-			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel); // モデルのVBVを設定
-
-			//commandList->DrawInstanced(kVertexCount, 1, 0, 0);
-			if (!useInstancing)
-			{
-				commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
-			}
-
-			// モンスターボールを1個だけ描画する（Enable LightingやLight Directionなどが効く）
-			if (showBall)
-			{
-				commandList->IASetVertexBuffers(0, 1, &vertexBufferView); // 球のVBV
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU4); // monsterBall.png
-				commandList->DrawInstanced(kVertexCount, 1, 0, 0);
-			}
-
-			///////////////////////////////////
+			planeObject.SetCommonRenderState(static_cast<BlendMode>(currentBlendMode));
+			terrainObject.Draw();
+			if (!useInstancing) { planeObject.Draw(); }
+			if (showBall) { sphereObject.Draw(); secondSphere.Draw(); }
 
 			////////////////// Particle(Instancing)の描画
 			// RootSignatureが変わるので、必要なものは全て設定し直す
@@ -1904,6 +1549,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// 最終フレームのGPU完了後、借りているDirectXBaseを破棄する前にSpriteを解放する。
 	sprites.clear();
 	deferredSmokeSprite.reset();
+	secondSphere.Finalize();
+	sphereObject.Finalize();
+	planeObject.Finalize();
+	terrainObject.Finalize();
+	sphereAppearance.Finalize();
+	ModelManager::Finalize();
 	TextureManager::Finalize();
 	directXBase->Finalize();
 	delete directXBase;

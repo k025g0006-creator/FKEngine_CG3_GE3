@@ -6,6 +6,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <unordered_map>
 
 class DirectXBase;
 
@@ -39,7 +40,6 @@ private:
     struct TextureData
     {
         std::string filePath;
-        std::wstring pathKey;
         DirectX::TexMetadata metadata{};
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         Microsoft::WRL::ComPtr<ID3D12Resource> uploadResource;
@@ -51,4 +51,5 @@ private:
     static TextureManager* instance_;
     DirectXBase* directXBase_ = nullptr; // mainから借りる。所有しない。
     std::vector<TextureData> textureDatas_;
+    std::unordered_map<std::wstring, uint32_t> textureIndices_;
 };

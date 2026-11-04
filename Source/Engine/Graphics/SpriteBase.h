@@ -2,6 +2,8 @@
 
 #include <d3d12.h>
 #include <wrl.h>
+#include "Matrix4x4.h"
+#include <cstdint>
 
 class DirectXBase;
 
@@ -21,6 +23,10 @@ public:
     DirectXBase* GetDirectXBase() const { return directXBase_; }
     float GetScreenWidth() const { return screenWidth_; }
     float GetScreenHeight() const { return screenHeight_; }
+    // 論理解像度が変わった場合だけ再計算する。GPUのviewport変更はDirectXBase側の役割。
+    void SetScreenSize(float width, float height);
+    const Matrix4x4& GetProjectionMatrix() const { return projectionMatrix_; }
+    uint64_t GetProjectionRevision() const { return projectionRevision_; }
 
 private:
     void CreateRootSignature();
@@ -30,6 +36,8 @@ private:
     DirectXBase* directXBase_ = nullptr; // 所有しない
     float screenWidth_ = 0.0f;
     float screenHeight_ = 0.0f;
+    Matrix4x4 projectionMatrix_ = Math::MakeIdentity4x4();
+    uint64_t projectionRevision_ = 0;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> rootSignature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipelineState_;
 };

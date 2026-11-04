@@ -45,6 +45,18 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Engine\Graphics\ModelManager.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\Model.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\ModelBase.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\Object3DBase.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Debug\DebugCamera.cpp">
       <Filter>Source\Engine\Debug</Filter>
     </ClCompile>
@@ -90,6 +102,21 @@
     <FxCompile Include="Resources\Shaders\Particle.VS.hlsl">
       <Filter>Resources\Shaders</Filter>
     </FxCompile>
+    <ClInclude Include="Source\Engine\Graphics\ModelManager.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\Model.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\ModelBase.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\Object3DBase.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\BlendMode.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Debug\DebugCamera.h">
       <Filter>Source\Engine\Debug</Filter>
     </ClInclude>

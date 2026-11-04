@@ -56,6 +56,8 @@ void Sprite::Initialize(SpriteBase* spriteBase, uint32_t textureIndex)
         textureFilePath_.clear();
         textureIndex_ = UINT32_MAX;
         spriteBase_ = nullptr;
+        vertexDirty_ = transformDirty_ = materialDirty_ = true;
+        projectionRevision_ = 0;
         throw;
     }
 }
@@ -69,44 +71,48 @@ void Sprite::SetTexture(const std::string& filePath)
 
 void Sprite::SetTextureIndex(uint32_t textureIndex)
 {
+    if (textureIndex_ == textureIndex) { return; }
     if (textureIndex == UINT32_MAX) {
         textureIndex_ = UINT32_MAX;
         textureHandle_ = {};
         textureFilePath_.clear();
+        textureImageSize_ = { 1.0f, 1.0f };
+        materialDirty_ = true;
         return;
     }
     auto* textures = TextureManager::GetInstance();
     // 範囲チェックを済ませてから状態を変更する。無効な番号でも元の画像は保持する。
     const std::string path = textures->GetTextureFilePath(textureIndex);
     const auto handle = textures->GetSrvHandleGPU(textureIndex);
+    const auto desc = textures->GetTextureBuffer(textureIndex)->GetDesc();
     textureFilePath_ = path;
     textureIndex_ = textureIndex;
     textureHandle_ = handle;
+    textureImageSize_ = { static_cast<float>(desc.Width), static_cast<float>(desc.Height) };
+    materialDirty_ = true;
     // 後から変更する場合、表示サイズは保ち、切り出しだけを全体へ戻す。
     ResetTextureRegion();
 }
 void Sprite::ResetTextureRegion()
 {
     if (!HasTexture()) { return; }
-    ID3D12Resource* texture = TextureManager::GetInstance()->GetTextureBuffer(textureIndex_);
-    const D3D12_RESOURCE_DESC desc = texture->GetDesc();
+    if (textureLeftTop_.x == 0.0f && textureLeftTop_.y == 0.0f &&
+        textureSize_.x == textureImageSize_.x && textureSize_.y == textureImageSize_.y) { return; }
     textureLeftTop_ = { 0.0f, 0.0f };
-    textureSize_ = { static_cast<float>(desc.Width), static_cast<float>(desc.Height) };
+    textureSize_ = textureImageSize_;
+    materialDirty_ = true;
 }
 
 void Sprite::AdjustTextureSize()
 {
     ResetTextureRegion();
-    size_ = textureSize_;
+    SetSize(textureSize_);
 }
-
 void Sprite::ClampTextureRegion()
 {
     if (!HasTexture()) { return; }
-    ID3D12Resource* texture = TextureManager::GetInstance()->GetTextureBuffer(textureIndex_);
-    const D3D12_RESOURCE_DESC desc = texture->GetDesc();
-    const float width = static_cast<float>(desc.Width);
-    const float height = static_cast<float>(desc.Height);
+    const float width = textureImageSize_.x;
+    const float height = textureImageSize_.y;
     textureLeftTop_.x = std::clamp(textureLeftTop_.x, 0.0f, width - 1.0f);
     textureLeftTop_.y = std::clamp(textureLeftTop_.y, 0.0f, height - 1.0f);
     textureSize_.x = std::clamp(textureSize_.x, 1.0f, width - textureLeftTop_.x);
@@ -117,8 +123,12 @@ void Sprite::SetTextureLeftTop(const Vector2& value)
     if (!std::isfinite(value.x) || !std::isfinite(value.y)) {
         throw std::invalid_argument("Texture crop position must be finite.");
     }
+    const Vector2 previousPosition = textureLeftTop_;
+    const Vector2 previousSize = textureSize_;
     textureLeftTop_ = value;
     ClampTextureRegion();
+    if (textureLeftTop_.x != previousPosition.x || textureLeftTop_.y != previousPosition.y ||
+        textureSize_.x != previousSize.x || textureSize_.y != previousSize.y) { materialDirty_ = true; }
 }
 
 void Sprite::SetTextureSize(const Vector2& value)
@@ -126,8 +136,12 @@ void Sprite::SetTextureSize(const Vector2& value)
     if (!std::isfinite(value.x) || !std::isfinite(value.y)) {
         throw std::invalid_argument("Texture crop size must be finite.");
     }
+    const Vector2 previousPosition = textureLeftTop_;
+    const Vector2 previousSize = textureSize_;
     textureSize_ = value;
     ClampTextureRegion();
+    if (textureLeftTop_.x != previousPosition.x || textureLeftTop_.y != previousPosition.y ||
+        textureSize_.x != previousSize.x || textureSize_.y != previousSize.y) { materialDirty_ = true; }
 }
 
 void Sprite::CreateVertexData()
@@ -163,46 +177,72 @@ void Sprite::CreateTransformationMatrixData()
     transformationMatrixData_->World = Math::MakeIdentity4x4();
 }
 
+bool Sprite::IsDirty() const
+{
+    return vertexDirty_ || transformDirty_ || materialDirty_ ||
+        (spriteBase_ && projectionRevision_ != spriteBase_->GetProjectionRevision());
+}
+
+const Matrix4x4& Sprite::GetUVTransform() const
+{
+    if (!materialData_) { throw std::logic_error("Initialize and update Sprite before reading the UV transform."); }
+    return materialData_->uvTransform;
+}
+
 void Sprite::Update()
 {
     if (!spriteBase_) { throw std::logic_error("Initialize Sprite before updating."); }
+    if (projectionRevision_ != spriteBase_->GetProjectionRevision()) { transformDirty_ = true; }
+    // 変更がなければMap済みメモリへの書き込みも行列演算も行わない。
+    if (!IsDirty()) { return; }
+    if (vertexDirty_) { UpdateVertices(); vertexDirty_ = false; }
+    if (transformDirty_) {
+        UpdateTransformation();
+        projectionRevision_ = spriteBase_->GetProjectionRevision();
+        transformDirty_ = false;
+    }
+    if (materialDirty_) { UpdateMaterial(); materialDirty_ = false; }
+}
+
+void Sprite::UpdateVertices()
+{
     float left = -anchorPoint_.x * size_.x;
     float top = -anchorPoint_.y * size_.y;
     float right = left + size_.x;
     float bottom = top + size_.y;
-    // 原点（アンカーポイント）を基準に頂点を反転する。
     if (isFlipX_) { left = -left; right = -right; }
     if (isFlipY_) { top = -top; bottom = -bottom; }
-    float texLeft = 0.0f;
-    float texRight = 1.0f;
-    float texTop = 0.0f;
-    float texBottom = 1.0f;
-    if (HasTexture()) {
-        ID3D12Resource* texture = TextureManager::GetInstance()->GetTextureBuffer(textureIndex_);
-        const D3D12_RESOURCE_DESC desc = texture->GetDesc();
-        // 元画像のピクセル範囲を、画像全体が1となるUV座標へ変換する。
-        texLeft = textureLeftTop_.x / static_cast<float>(desc.Width);
-        texRight = (textureLeftTop_.x + textureSize_.x) / static_cast<float>(desc.Width);
-        texTop = textureLeftTop_.y / static_cast<float>(desc.Height);
-        texBottom = (textureLeftTop_.y + textureSize_.y) / static_cast<float>(desc.Height);
-    }
-    vertexData_[0] = { { left, bottom, 0.0f, 1.0f }, { texLeft, texBottom }, { 0.0f, 0.0f, -1.0f } };
-    vertexData_[1] = { { right, bottom, 0.0f, 1.0f }, { texRight, texBottom }, { 0.0f, 0.0f, -1.0f } };
-    vertexData_[2] = { { left, top, 0.0f, 1.0f }, { texLeft, texTop }, { 0.0f, 0.0f, -1.0f } };
-    vertexData_[3] = { { right, top, 0.0f, 1.0f }, { texRight, texTop }, { 0.0f, 0.0f, -1.0f } };
+    // 頂点UVは常に0～1。切り出しを含むUV変形はマテリアルだけが担当する。
+    vertexData_[0] = { { left, bottom, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } };
+    vertexData_[1] = { { right, bottom, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, -1.0f } };
+    vertexData_[2] = { { left, top, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } };
+    vertexData_[3] = { { right, top, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, -1.0f } };
+}
 
+void Sprite::UpdateTransformation()
+{
     const FKEngine::Transform transform{
         { 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f, rotation_ }, { position_.x, position_.y, 0.0f }
     };
     const Matrix4x4 world = Math::MakeAffineMatrix(transform.scale, transform.rotate, transform.translate);
-    const Matrix4x4 view = Math::MakeIdentity4x4(); // Spriteはカメラの影響を受けない。
-    const Matrix4x4 projection = Math::MakeOrthographicMatrix(0.0f, 0.0f,
-        spriteBase_->GetScreenWidth(), spriteBase_->GetScreenHeight(), 0.0f, 100.0f);
-    transformationMatrixData_->WVP = Math::Multiply(world, Math::Multiply(view, projection));
+    transformationMatrixData_->WVP = Math::Multiply(world, spriteBase_->GetProjectionMatrix());
     transformationMatrixData_->World = world;
+}
+
+void Sprite::UpdateMaterial()
+{
+    Matrix4x4 crop = Math::MakeIdentity4x4();
+    if (HasTexture()) {
+        crop = Math::Multiply(
+            Math::MakeScaleMatrix({ textureSize_.x / textureImageSize_.x, textureSize_.y / textureImageSize_.y, 1.0f }),
+            Math::MakeTranslateMatrix({ textureLeftTop_.x / textureImageSize_.x, textureLeftTop_.y / textureImageSize_.y, 0.0f }));
+    }
+    const Matrix4x4 extra = Math::Multiply(
+        Math::Multiply(Math::MakeScaleMatrix({ uvScale_.x, uvScale_.y, 1.0f }), Math::MakeRotateZMatrix(uvRotation_)),
+        Math::MakeTranslateMatrix({ uvPosition_.x, uvPosition_.y, 0.0f }));
+    // 行ベクトル：固定UV → 切り出し → 詳細UV変形。従来と同じ順序を1つの行列に合成する。
+    materialData_->uvTransform = Math::Multiply(crop, extra);
     materialData_->color = { color_[0], color_[1], color_[2], color_[3] };
-    materialData_->uvTransform = Math::Multiply(Math::Multiply(Math::MakeScaleMatrix({ uvScale_.x, uvScale_.y, 1.0f }),
-        Math::MakeRotateZMatrix(uvRotation_)), Math::MakeTranslateMatrix({ uvPosition_.x, uvPosition_.y, 0.0f }));
 }
 void Sprite::Draw() const
 {

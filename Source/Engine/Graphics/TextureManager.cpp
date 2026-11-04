@@ -26,6 +26,7 @@ void TextureManager::Initialize(DirectXBase* directXBase)
         throw std::invalid_argument("TextureManager requires an initialized DirectXBase and one Initialize call.");
     }
     textureDatas_.reserve(DirectXBase::kMaxSRVCount - DirectXBase::kFirstTextureSRVIndex);
+    textureIndices_.reserve(DirectXBase::kMaxSRVCount - DirectXBase::kFirstTextureSRVIndex);
     directXBase_ = directXBase;
 }
 
@@ -46,9 +47,7 @@ void TextureManager::LoadTexture(const std::string& filePath)
 {
     if (!directXBase_) { throw std::logic_error("Initialize TextureManager before loading textures."); }
     const auto key = MakePathKey(filePath);
-    const auto loaded = std::find_if(textureDatas_.begin(), textureDatas_.end(),
-        [&](const TextureData& texture) { return texture.pathKey == key; });
-    if (loaded != textureDatas_.end()) { return; }
+    if (textureIndices_.contains(key)) { return; }
     if (textureDatas_.size() >= DirectXBase::kMaxSRVCount - DirectXBase::kFirstTextureSRVIndex) {
         throw std::runtime_error("TextureManager SRV capacity exceeded.");
     }
@@ -67,7 +66,6 @@ void TextureManager::LoadTexture(const std::string& filePath)
 
     TextureData data;
     data.filePath = filePath;
-    data.pathKey = key;
     data.metadata = mipImages.GetMetadata();
     data.resource = directXBase_->CreateTextureResource(data.metadata);
     if (!data.resource) { throw std::runtime_error("Failed to create texture resource: " + filePath); }
@@ -85,20 +83,25 @@ void TextureManager::LoadTexture(const std::string& filePath)
     directXBase_->GetDevice()->CreateShaderResourceView(data.resource.Get(), &srvDesc, data.srvHandleCPU);
 
     // コマンドを積んだだけでは転送は終わらない。完了通知までUploadHeapも所有する。
-    data.uploadResource = directXBase_->UploadTextureData(data.resource, mipImages);
-    textureDatas_.push_back(std::move(data));
+    // ハッシュ表の割り当てを、GPUへコマンドを積む前に済ませる。
+    const auto inserted = textureIndices_.emplace(key, static_cast<uint32_t>(textureDatas_.size()));
+    if (!inserted.second) { return; }
+    const size_t previousSize = textureDatas_.size();
+    try {
+        textureDatas_.push_back(std::move(data)); // 最大枚数をreserve済み。
+        auto& registered = textureDatas_.back();
+        registered.uploadResource = directXBase_->UploadTextureData(registered.resource, mipImages);
+    } catch (...) {
+        if (textureDatas_.size() != previousSize) { textureDatas_.pop_back(); }
+        textureIndices_.erase(inserted.first);
+        throw;
+    }
 }
 
 const TextureManager::TextureData& TextureManager::FindTexture(const std::string& filePath) const
 {
-    if (!directXBase_) { throw std::logic_error("TextureManager is not initialized."); }
-    const auto key = MakePathKey(filePath);
-    const auto found = std::find_if(textureDatas_.begin(), textureDatas_.end(),
-        [&](const TextureData& texture) { return texture.pathKey == key; });
-    if (found == textureDatas_.end()) { throw std::out_of_range("Texture is not loaded: " + filePath); }
-    return *found;
+    return textureDatas_.at(GetTextureIndexByFilePath(filePath));
 }
-
 D3D12_GPU_DESCRIPTOR_HANDLE TextureManager::GetSrvHandleGPU(const std::string& filePath) const
 {
     return FindTexture(filePath).srvHandleGPU;
@@ -111,10 +114,11 @@ const DirectX::TexMetadata& TextureManager::GetMetadata(const std::string& fileP
 
 uint32_t TextureManager::GetTextureIndexByFilePath(const std::string& filePath) const
 {
-    const TextureData& texture = FindTexture(filePath);
-    return static_cast<uint32_t>(&texture - textureDatas_.data());
+    if (!directXBase_) { throw std::logic_error("TextureManager is not initialized."); }
+    const auto found = textureIndices_.find(MakePathKey(filePath));
+    if (found == textureIndices_.end()) { throw std::out_of_range("Texture is not loaded: " + filePath); }
+    return found->second;
 }
-
 D3D12_GPU_DESCRIPTOR_HANDLE TextureManager::GetSrvHandleGPU(uint32_t textureIndex) const
 {
     if (!directXBase_) { throw std::logic_error("TextureManager is not initialized."); }

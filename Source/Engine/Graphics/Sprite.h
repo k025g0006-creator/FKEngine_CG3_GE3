@@ -23,19 +23,43 @@ public:
     void Initialize(SpriteBase* spriteBase, uint32_t textureIndex = UINT32_MAX);
     void Update();
     void Draw() const;
-    void SetPosition(const Vector2& value) { position_ = value; }
+    bool IsDirty() const;
+    // Update後の、切り出しと追加UV変形を合成した行列。
+    const Matrix4x4& GetUVTransform() const;
+    void SetPosition(const Vector2& value) {
+        if (position_.x == value.x && position_.y == value.y) { return; }
+        position_ = value; transformDirty_ = true;
+    }
     const Vector2& GetPosition() const { return position_; }
-    void SetSize(const Vector2& value) { size_ = value; }
+    void SetSize(const Vector2& value) {
+        if (size_.x == value.x && size_.y == value.y) { return; }
+        size_ = value; vertexDirty_ = true;
+    }
     const Vector2& GetSize() const { return size_; }
-    void SetRotation(float value) { rotation_ = value; }
+    void SetRotation(float value) {
+        if (rotation_ == value) { return; }
+        rotation_ = value; transformDirty_ = true;
+    }
     float GetRotation() const { return rotation_; }
-    void SetColor(const std::array<float, 4>& value) { color_ = value; }
+    void SetColor(const std::array<float, 4>& value) {
+        if (color_ == value) { return; }
+        color_ = value; materialDirty_ = true;
+    }
     const std::array<float, 4>& GetColor() const { return color_; }
-    void SetAnchorPoint(const Vector2& value) { anchorPoint_ = value; }
+    void SetAnchorPoint(const Vector2& value) {
+        if (anchorPoint_.x == value.x && anchorPoint_.y == value.y) { return; }
+        anchorPoint_ = value; vertexDirty_ = true;
+    }
     const Vector2& GetAnchorPoint() const { return anchorPoint_; }
-    void SetFlipX(bool value) { isFlipX_ = value; }
+    void SetFlipX(bool value) {
+        if (isFlipX_ == value) { return; }
+        isFlipX_ = value; vertexDirty_ = true;
+    }
     bool GetFlipX() const { return isFlipX_; }
-    void SetFlipY(bool value) { isFlipY_ = value; }
+    void SetFlipY(bool value) {
+        if (isFlipY_ == value) { return; }
+        isFlipY_ = value; vertexDirty_ = true;
+    }
     bool GetFlipY() const { return isFlipY_; }
     // 元画像内のピクセル単位。表示サイズとは独立した切り出し範囲。
     void SetTextureLeftTop(const Vector2& value);
@@ -43,11 +67,20 @@ public:
     void SetTextureSize(const Vector2& value);
     const Vector2& GetTextureSize() const { return textureSize_; }
     void ResetTextureRegion();
-    void SetUVPosition(const Vector2& value) { uvPosition_ = value; }
+    void SetUVPosition(const Vector2& value) {
+        if (uvPosition_.x == value.x && uvPosition_.y == value.y) { return; }
+        uvPosition_ = value; materialDirty_ = true;
+    }
     const Vector2& GetUVPosition() const { return uvPosition_; }
-    void SetUVScale(const Vector2& value) { uvScale_ = value; }
+    void SetUVScale(const Vector2& value) {
+        if (uvScale_.x == value.x && uvScale_.y == value.y) { return; }
+        uvScale_ = value; materialDirty_ = true;
+    }
     const Vector2& GetUVScale() const { return uvScale_; }
-    void SetUVRotation(float value) { uvRotation_ = value; }
+    void SetUVRotation(float value) {
+        if (uvRotation_ == value) { return; }
+        uvRotation_ = value; materialDirty_ = true;
+    }
     float GetUVRotation() const { return uvRotation_; }
     void SetTexture(const std::string& filePath);
     void SetTextureIndex(uint32_t textureIndex);
@@ -87,6 +120,9 @@ private:
     void CreateTransformationMatrixData();
     void AdjustTextureSize();
     void ClampTextureRegion();
+    void UpdateVertices();
+    void UpdateTransformation();
+    void UpdateMaterial();
 
     SpriteBase* spriteBase_ = nullptr; // 所有しない
     D3D12_GPU_DESCRIPTOR_HANDLE textureHandle_{};
@@ -104,6 +140,11 @@ private:
     Vector2 uvPosition_{ 0.0f, 0.0f };
     Vector2 uvScale_{ 1.0f, 1.0f };
     float uvRotation_ = 0.0f;
+    Vector2 textureImageSize_{ 1.0f, 1.0f };
+    bool vertexDirty_ = true;
+    bool transformDirty_ = true;
+    bool materialDirty_ = true;
+    uint64_t projectionRevision_ = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indexResource_;
     Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;

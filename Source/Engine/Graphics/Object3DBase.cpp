@@ -35,7 +35,7 @@ void CreateConstantBuffer(DirectXBase* dx, Microsoft::WRL::ComPtr<ID3D12Resource
 void Object3DBase::Initialize(DirectXBase* directXBase)
 {
     if (directXBase_ || !directXBase || !directXBase->GetDevice() ||
-        !directXBase->GetCommandList() || !directXBase->GetSRVDescriptorHeap()) {
+        !directXBase->GetCommandList()) {
         throw std::invalid_argument("Object3DBase requires initialized DirectXBase and one Initialize call.");
     }
     directXBase_ = directXBase;
@@ -316,8 +316,6 @@ void Object3DBase::SetCommonRenderState(BlendMode blendMode) const
         throw std::out_of_range("Invalid Object3D blend mode.");
     }
     auto* commandList = directXBase_->GetCommandList().Get();
-    ID3D12DescriptorHeap* heaps[] = { directXBase_->GetSRVDescriptorHeap().Get() };
-    commandList->SetDescriptorHeaps(_countof(heaps), heaps);
     commandList->SetGraphicsRootSignature(renderState_->rootSignature.Get());
     commandList->SetPipelineState(renderState_->pipelineStates[blendMode].Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

@@ -60,7 +60,13 @@
     <ClCompile Include="Source\Engine\Debug\DebugCamera.cpp">
       <Filter>Source\Engine\Debug</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Debug\ImGuiManager.cpp">
+      <Filter>Source\Engine\Debug</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Graphics\DirectXBase.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\SRVInformationManager.cpp">
       <Filter>Source\Engine\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Debug\D3DResourceLeakChecker.cpp">
@@ -120,7 +126,13 @@
     <ClInclude Include="Source\Engine\Debug\DebugCamera.h">
       <Filter>Source\Engine\Debug</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Engine\Debug\ImGuiManager.h">
+      <Filter>Source\Engine\Debug</Filter>
+    </ClInclude>
     <ClInclude Include="Source\Engine\Graphics\DirectXBase.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\SRVInformationManager.h">
       <Filter>Source\Engine\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Debug\D3DResourceLeakChecker.h">

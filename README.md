@@ -37,7 +37,7 @@
 
 Visual Studioでの作業ディレクトリはプロジェクトのルートです。ビルド後には、必要な素材・シェーダー・DXCのDLLが実行ファイルの隣にもコピーされます。実行時のImGui設定は実行ファイル側の`Config/imgui.ini`へ保存します。実行フォルダを別の場所へ渡すときは、`Resources`と`Config`、DLLを含めてコピーしてください。
 
-DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドします。アプリケーションはプロジェクト参照でリンクし、DirectXTex用の旧NuGetパッケージは使用しません。ImGuiはアプリケーションのDebug構成で有効になります。
+DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドします。アプリケーションはプロジェクト参照でリンクし、DirectXTex用の旧NuGetパッケージは使用しません。ImGui 1.93.0はアプリケーションのDebug構成で有効になります。
 
 新しいC++ファイルは担当する`Source`配下に置いてプロジェクトへ登録し、ソリューションエクスプローラーでも同じフォルダのフィルターへ追加してください。
 
@@ -107,10 +107,10 @@ Gitの除外規則と追跡済みファイルの確認には、[git ls-filesの�
 - Source/Engine/Graphics/SpriteBase：共通のRootSignature、PSO、専用シェーダー、画面サイズ。アプリ側で1つ生成します。
 - Source/Engine/Graphics/Sprite：1枚分の頂点・インデックス・定数バッファ、位置、サイズ、回転、基準点、色・透明度、UV。画像ごとに生成します。
 
-TextureManager::InitializeとSpriteBase::Initialize後に、Sprite::Initializeへ共通設定と画像ファイルパスを渡します。テクスチャとSRVはTextureManagerが共有・保持するので、全Spriteの解放後にTextureManager::Finalizeを呼びます。3D/Particleの描画後にSpriteBase::SetCommonRenderStateを1回呼び、各SpriteのUpdate、Drawを呼びます。各インスタンスのComPtrがバッファを解放するので、手動のReleaseは不要です。
+TextureManager::InitializeとSpriteBase::Initialize後に、Sprite::Initializeへ共通設定と画像ファイルパスを渡します。画像はTextureManagerが共有・保持します。SRVの割り当てはSRVInformationManagerが担当します。3D/Particleの描画後にSpriteBase::SetCommonRenderStateを1回呼び、各SpriteのUpdate、Drawを呼びます。各インスタンスのComPtrがバッファを解放するので、手動のReleaseは不要です。
 
 初期状態は同じSpriteBaseから2枚の画像を表示します。ImGuiの「スプライト」で操作対象を選び、位置・サイズ・回転・色・透明度・基準点・UVを個別に変更できます。初期UVは左上(0,0)、右下(1,1)です。
-SpriteBaseの初期化は、Initialize → CreateGraphicsPipelineState → CreateRootSignatureの順に呼び出し、RootSignatureの完成後にPSOを生成します。描画時はDirectXBase::PreDraw → 3D/Particle描画 → SpriteBase::SetCommonRenderState → 各Sprite::Drawの順です。DirectXBaseは非所有ポインタで参照し、GetDirectXBaseから取得できます。
+SpriteBaseの初期化は、Initialize → CreateGraphicsPipelineState → CreateRootSignatureの順に呼び出し、RootSignatureの完成後にPSOを生成します。描画時はDirectXBase::PreDraw → SRVInformationManager::PreDraw → 3D/Particle描画 → SpriteBase::SetCommonRenderState → 各Sprite::Drawの順です。DirectXBaseは非所有ポインタで参照し、GetDirectXBaseから取得できます。
 
 Spriteの初期化はCreateVertexData、CreateMaterialData、CreateTransformationMatrixDataに分割しています。VertexData（位置・UV・法線）、Material（色・照明フラグ・UV行列）、TransformationMatrix（WVP・World）はSprite内の構造体で、対応するGPUバッファも各インスタンスが所有します。Sprite専用シェーダーも同じレイアウトに揃えています。
 数学の共有型はSource/Engine/MathのVector2.h、Vector3.h、Vector4.h、Matrix4x4.h、Transform.hへ分離しています。変形情報はFKEngine::Transform、行列などの自由関数はMath名前空間です。Matrix4x4の演算子は型と同じスコープに置き、Mathの計算へ委譲します。
@@ -121,8 +121,8 @@ ImGuiの「スプライト」では、UVチェッカー・モンスターボー�
 ### テクスチャ管理
 
 TextureManagerはGetInstanceで取得し、mainが所有するDirectXBaseをInitializeへ渡します。LoadTextureは画像を読み込んでキャッシュへ格納し、同じ画像の再読み込み要求は既存データを再利用します。GetSrvHandleGPUで描画用ハンドル、GetMetadataで元画像の幅・高さ等を取得できます。パスの相対・絶対、./、区切り文字、Windowsの大小文字を正規化します。
-DirectXBase::kMaxSRVCountは512です。0番はImGui、1番はInstancing用に予約し、2～511番をTextureManagerが割り当てるため、管理できる画像は最大510枚です。読み込む前に最大数分のvector容量をreserveし、上限超過はエラーで通知します。
-画像のデコードとMipMap生成はTextureManager、GPUリソースの生成・転送はDirectXBaseの役割です。転送用UploadHeapはTextureData内に保持し、DirectXBase::PostDrawのGPU完了待ち後にReleaseUploadResourcesで解放します。終了順は、GPU完了 → 全Sprite解放 → TextureManager::Finalize → DirectXBase解放です。Finalize後のGetInstanceは新しい管理インスタンスを作るため、終了処理では呼び出しません。
+SRVInformationManagerは512枠の共有ヒープを持ち、ImGui・テクスチャ・Particleが必要な番号をAllocateで確保します。テクスチャ番号は従来どおり画像の識別に使い、共有ヒープ内の番号はGetSrvIndexで取得します。ImGuiはコールバックで不要なSRVを返却し、番号を再利用します。上限を超える要求はエラーで通知します。
+画像のデコードとMipMap生成はTextureManager、GPUリソースの生成・転送はDirectXBaseの役割です。転送用UploadHeapはTextureData内に保持し、DirectXBase::PostDrawのGPU完了待ち後にReleaseUploadResourcesで解放します。終了順は、GPU完了 → 全Sprite解放 → TextureManager::Finalize → SRVInformationManager::Finalize → DirectXBase解放です。Finalize後のGetInstanceは新しい管理インスタンスを作るため、終了処理では呼び出しません。
 ImGuiの「選択中の画像」で既存Spriteの画像を切り替えられます。「読み込み済み画像」はキャッシュ枚数であり、Spriteを複製しても増えません。「元画像サイズに合わせる」で画像の解像度を表示サイズへ反映します。smoke-testはパス違いでの重複読込防止、読込失敗時のキャッシュ不変、転送完了後のUploadHeap解放も確認します。
 
 ### アンカー・反転・画像の切り出し
@@ -166,7 +166,7 @@ object.SetTranslate({ 0.0f, 1.0f, 0.0f });
 
 同じModelを複数のObject3DBaseへSetModelでき、頂点・材質・画像を共有しながらTransformを個別に変更できます。SetScale/GetScale、SetRotate/GetRotate、SetTranslate/GetTranslateを用意しています。Modelの材質や画像を変更すると、そのModelを参照するすべての配置へ反映されます。mainでは1つの球Modelを2つのObject3DBaseへ割り当て、異なる位置に同時表示しています。
 
-Update()はカメラTransformからビュー・透視投影を作成し、Update(view, projection)はデバッグカメラなど外部の行列を利用します。World・WVP・法線用逆転置行列は各Object3DBaseが保持します。描画順はDirectXBase::PreDraw → Object3DBase::SetCommonRenderState → 各Object3DBase::Draw（Model::Drawを呼出）→ Particle → Spriteです。
+Update()はカメラTransformからビュー・透視投影を作成し、Update(view, projection)はデバッグカメラなど外部の行列を利用します。World・WVP・法線用逆転置行列は各Object3DBaseが保持します。描画順はDirectXBase::PreDraw → SRVInformationManager::PreDraw → Object3DBase::SetCommonRenderState → 各Object3DBase::Draw（Model::Drawを呼出）→ Particle → Spriteです。
 
 GPU完了後にObject3DBaseをすべてFinalizeし、手続き生成Model → ModelManager → TextureManager → DirectXBaseの順に解放します。ModelManagerが管理するModelとModelBaseは内部で解放されます。SetModelは所有権を移さないため、参照中のModelを先に破棄しないでください。ParticleもModelの頂点を借りて専用パイプラインで描画します。
 
@@ -189,4 +189,4 @@ object.SetModel("terrain.obj"); // 同じ配置で別の見た目に切り替え
 
 ImGuiの「モンスターボール」内の「2体目のモデル」で、球・plane・terrainを切り替えられます。手続き生成した球は従来のModelData初期化を使い、Managerが所有するModelBaseを借りています。smoke-testはキャッシュの重複防止、未登録検索、失敗時のキャッシュ不変性、モデルの差し替えと3フレーム描画を確認します。
 
-終了時はGPU完了 → 全Objectと手続き生成Modelの解放 → ModelManager::Finalize → TextureManager::Finalize → DirectXBaseの終了の順です。Finalize後にGetInstanceを呼ぶと新しい未初期化インスタンスが生成されるため、終了処理では呼びません。
+終了時はGPU完了 → 全Objectと手続き生成Modelの解放 → ModelManager::Finalize → TextureManager::Finalize → SRVInformationManager::Finalize → DirectXBaseの終了の順です。Finalize後にGetInstanceを呼ぶと新しい未初期化インスタンスが生成されるため、終了処理では呼びません。

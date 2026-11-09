@@ -29,9 +29,7 @@
 
 #ifdef USE_IMGUI
 #include "imgui.h"
-#include "imgui_impl_dx12.h"
-#include "imgui_impl_win32.h"
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+#include "ImGuiManager.h"
 #endif
 
 #include <DirectXTex.h>
@@ -45,6 +43,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include "Input.h"
 #include "WinApp.h"
 #include "DirectXBase.h"
+#include "SRVInformationManager.h"
 #include "Object3DBase.h"
 #include "Model.h"
 #include "ModelBase.h"
@@ -62,9 +61,6 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <list>
 
 using Microsoft::WRL::ComPtr;
-
-
-
 
 // Particleも3Dオブジェクトと同じ頂点・マテリアルの配置を利用する。
 using VertexData = Model::VertexData;
@@ -144,20 +140,6 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 
 	// 他に関連づけられているSEH例外ハンドラがあれば実行。通常はプロセスを終了する
 	return EXCEPTION_EXECUTE_HANDLER;
-}
-
-D3D12_CPU_DESCRIPTOR_HANDLE GetCPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
-{
-	D3D12_CPU_DESCRIPTOR_HANDLE handleCPU = descriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	handleCPU.ptr += (descriptorSize * index);
-	return handleCPU;
-}
-
-D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(ID3D12DescriptorHeap* descriptorHeap, uint32_t descriptorSize, uint32_t index)
-{
-	D3D12_GPU_DESCRIPTOR_HANDLE handleGPU = descriptorHeap->GetGPUDescriptorHandleForHeapStart();
-	handleGPU.ptr += (descriptorSize * index);
-	return handleGPU;
 }
 
 std::random_device seedGenerator;
@@ -263,32 +245,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	auto& device = directXBase->GetDevice();
 	auto& commandList = directXBase->GetCommandList();
 
-	auto& srvDescriptorHeap = directXBase->GetSRVDescriptorHeap();
-	const uint32_t descriptorSizeSRV = directXBase->GetSRVDescriptorSize();
-	const DXGI_FORMAT rtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+	SRVInformationManager srvManager;
+	srvManager.Initialize(directXBase);
 
 #ifdef USE_IMGUI
-	// ImGuiの初期化
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui::StyleColorsDark();
-	ImGuiIO& io = ImGui::GetIO();
-	io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 16.0f, nullptr, io.Fonts->GetGlyphRangesJapanese());
-	ImGui_ImplWin32_Init(hwnd);
-	ImGui_ImplDX12_Init(device.Get(),
-		DirectXBase::kBackBufferCount,
-		rtvFormat,
-		srvDescriptorHeap.Get(),
-		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kImGuiSRVIndex),
-		GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kImGuiSRVIndex));
-	const std::u8string imguiIniPathUtf8 = (GetExecutableDirectory() / "Config/imgui.ini").u8string();
-	const std::string imguiIniPath(imguiIniPathUtf8.begin(), imguiIniPathUtf8.end());
-	io.IniFilename = imguiIniPath.c_str();
-	io.Fonts->Build();
+	ImGuiManager imguiManager;
+	imguiManager.Initialize(hwnd, *directXBase, srvManager, GetExecutableDirectory() / "Config/imgui.ini");
 #endif
 	// 個別オブジェクトの初期化でもTextureManagerを利用する。
 	TextureManager* textureManager = TextureManager::GetInstance();
-	textureManager->Initialize(directXBase);
+	textureManager->Initialize(srvManager);
 
 	// モデル類は通常の不透明描画、Particleは加算ブレンドで描画する
 	int currentBlendMode = kBlendModeNone;
@@ -736,8 +702,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	assert(SUCCEEDED(hr));
 
 
-	// SRVの割り当て・生成はTextureManagerに集約する。
-	const auto textureSrvHandleGPU3 = textureManager->GetSrvHandleGPU("Resources/circle.png");
+	const UINT particleTextureSrvIndex = textureManager->GetSrvIndex("Resources/circle.png");
 	// 共通設定は1つ、スプライト1枚ごとのデータは別インスタンスにする。
 	SpriteBase spriteBase;
 	spriteBase.Initialize(directXBase, float(kClientWidth), float(kClientHeight));
@@ -876,20 +841,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		instancingData[index].color = { 1.0f, 1.0f, 1.0f, 1.0f };
 	}
 
-	// StructuredBuffer用のSRVを作る
-	D3D12_SHADER_RESOURCE_VIEW_DESC instancingSrvDesc{};
-	instancingSrvDesc.Format = DXGI_FORMAT_UNKNOWN;
-	instancingSrvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-	instancingSrvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-	instancingSrvDesc.Buffer.FirstElement = 0;
-	instancingSrvDesc.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_NONE;
-	instancingSrvDesc.Buffer.NumElements = kNumMaxInstance;
-	instancingSrvDesc.Buffer.StructureByteStride = sizeof(ParticleForGPU);
-
-	// 予約したInstancing用スロットへSRVを作成する（0:ImGui、1:Instancing、2以降:TextureManager）。
-	D3D12_CPU_DESCRIPTOR_HANDLE instancingSrvHandleCPU = GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kInstancingSRVIndex);
-	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, DirectXBase::kInstancingSRVIndex);
-	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
+	// Particleも共有ヒープから必要な番号を確保する。
+	const UINT instancingSrvIndex = srvManager.Allocate();
+	srvManager.CreateSRVForStructuredBuffer(instancingSrvIndex, instancingResource.Get(), kNumMaxInstance, sizeof(ParticleForGPU));
 
 	// CPU側のParticleはlistで管理する（最大数を予め決めなくてよい）
 	std::list<Particle> particles;
@@ -960,6 +914,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				else { secondSphere.SetModel(&sphereAppearance); }
 				useInstancing = smokeTestFrames != 0;
 				isDebugCameraActive = smokeTestFrames == 1;
+				if (smokeTestFrames == 1) { particles.splice(particles.end(), Emit(emitter, randomEngine)); }
 				if (smokeTestFrames == 0) {
 					Sprite& boundsCheck = *sprites.front();
 					const auto& imageBounds = textureManager->GetMetadata(boundsCheck.GetTextureIndex());
@@ -1060,9 +1015,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 
 #ifdef USE_IMGUI
-			ImGui_ImplDX12_NewFrame();
-			ImGui_ImplWin32_NewFrame();
-			ImGui::NewFrame();
+			imguiManager.BeginFrame();
 
 			ImGui::Begin("設定");
 			ImGui::ColorEdit4("色", colorArray);
@@ -1342,7 +1295,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			ImGui::End();
 
-			ImGui::Render();
+			imguiManager.EndFrame();
 #endif
 
 			// カメラの行列（デバッグカメラが有効な場合はそちらを使用）
@@ -1463,6 +1416,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			// 指定した色で画面全体をクリアする
 			float clearColor[] = { 0.1f,0.25f,0.5f,1.0f };
 			directXBase->PreDraw(clearColor);
+			srvManager.PreDraw();
 
 			planeObject.SetCommonRenderState(static_cast<BlendMode>(currentBlendMode));
 			terrainObject.Draw();
@@ -1481,8 +1435,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
 				// Instancing用のStructuredBufferのSRVを設定する
-				commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandleGPU);
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU3); // circle.png
+				srvManager.SetGraphicsRootDescriptorTable(1, instancingSrvIndex);
+				srvManager.SetGraphicsRootDescriptorTable(2, particleTextureSrvIndex); // circle.png
 
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
 
@@ -1509,7 +1463,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 #ifdef USE_IMGUI
 			// 実際のcommandListのImGuiの描画コマンドを頼む
-			ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
+			imguiManager.Draw();
 #endif
 			//////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1540,10 +1494,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	Logger::Log(logStream, "Hello, DirectX! Shutdown successful.");
 
 #ifdef USE_IMGUI
-	// ImGuiの終了処理
-	ImGui_ImplDX12_Shutdown();
-	ImGui_ImplWin32_Shutdown();
-	ImGui::DestroyContext();
+	imguiManager.Finalize();
 #endif
 
 	// 最終フレームのGPU完了後、借りているDirectXBaseを破棄する前にSpriteを解放する。
@@ -1556,6 +1507,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	sphereAppearance.Finalize();
 	ModelManager::Finalize();
 	TextureManager::Finalize();
+	srvManager.Finalize();
 	directXBase->Finalize();
 	delete directXBase;
 

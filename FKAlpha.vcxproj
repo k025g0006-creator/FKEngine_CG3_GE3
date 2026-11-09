@@ -43,8 +43,10 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <ImportGroup Label="ExtensionSettings"></ImportGroup>
-  <ImportGroup Label="Shared"></ImportGroup>
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -137,7 +139,9 @@
     <ClCompile Include="Source\Engine\Graphics\ModelBase.cpp" />
     <ClCompile Include="Source\Engine\Graphics\Object3DBase.cpp" />
     <ClCompile Include="Source\Engine\Debug\DebugCamera.cpp" />
+    <ClCompile Include="Source\Engine\Debug\ImGuiManager.cpp" />
     <ClCompile Include="Source\Engine\Graphics\DirectXBase.cpp" />
+    <ClCompile Include="Source\Engine\Graphics\SRVInformationManager.cpp" />
     <ClCompile Include="Source\Engine\Graphics\SpriteBase.cpp" />
     <ClCompile Include="Source\Engine\Graphics\Sprite.cpp" />
     <ClCompile Include="Source\Engine\Debug\D3DResourceLeakChecker.cpp" />
@@ -186,7 +190,9 @@
     <ClInclude Include="Source\Engine\Graphics\Object3DBase.h" />
     <ClInclude Include="Source\Engine\Graphics\BlendMode.h" />
     <ClInclude Include="Source\Engine\Debug\DebugCamera.h" />
+    <ClInclude Include="Source\Engine\Debug\ImGuiManager.h" />
     <ClInclude Include="Source\Engine\Graphics\DirectXBase.h" />
+    <ClInclude Include="Source\Engine\Graphics\SRVInformationManager.h" />
     <ClInclude Include="Source\Engine\Graphics\SpriteBase.h" />
     <ClInclude Include="Source\Engine\Graphics\Sprite.h" />
     <ClInclude Include="Source\Engine\Debug\D3DResourceLeakChecker.h" />
@@ -198,8 +204,10 @@
     <ClInclude Include="Source\Engine\Core\StringUtility.h" />
     <ClInclude Include="Source\Engine\Core\WinApp.h" />
   </ItemGroup>
-  <ItemGroup></ItemGroup>
-  <ItemGroup></ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
   <ItemGroup>
     <None Include="Resources\Shaders\Object3d.hlsli" />
     <None Include="Resources\Shaders\Particle.hlsli" />

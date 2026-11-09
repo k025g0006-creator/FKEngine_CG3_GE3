@@ -15,10 +15,6 @@ class DirectXBase
 {
 public:
 	static constexpr UINT kBackBufferCount = 2;
-    static constexpr UINT kMaxSRVCount = 512;
-    static constexpr UINT kImGuiSRVIndex = 0;
-    static constexpr UINT kInstancingSRVIndex = 1;
-    static constexpr UINT kFirstTextureSRVIndex = 2;
 
 	bool Initialize(HWND hwnd, UINT width, UINT height);
 	void Finalize();
@@ -32,9 +28,8 @@ public:
 		const DirectX::ScratchImage& mipImages);
 
 	Microsoft::WRL::ComPtr<ID3D12Device>& GetDevice() { return device_; }
+	ID3D12CommandQueue* GetCommandQueue() const { return commandQueue_.Get(); }
 	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList>& GetCommandList() { return commandList_; }
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap>& GetSRVDescriptorHeap() { return srvDescriptorHeap_; }
-	UINT GetSRVDescriptorSize() const { return srvDescriptorSize_; }
 
 private:
 	bool InitializeCommand();
@@ -49,7 +44,6 @@ private:
 	Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList_;
 	Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain_;
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> rtvDescriptorHeap_;
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvDescriptorHeap_;
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> dsvDescriptorHeap_;
 	Microsoft::WRL::ComPtr<ID3D12Resource> backBuffers_[kBackBufferCount];
 	Microsoft::WRL::ComPtr<ID3D12Resource> depthStencilResource_;
@@ -59,7 +53,6 @@ private:
 	uint64_t fenceValue_ = 0;
 	HANDLE fenceEvent_ = nullptr;
 	UINT rtvDescriptorSize_ = 0;
-	UINT srvDescriptorSize_ = 0;
 	UINT dsvDescriptorSize_ = 0;
 	D3D12_VIEWPORT viewport_{};
 	D3D12_RECT scissorRect_{};

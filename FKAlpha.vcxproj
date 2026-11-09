@@ -141,12 +141,25 @@
     <ClCompile Include="Source\Engine\Debug\DebugCamera.cpp" />
     <ClCompile Include="Source\Engine\Debug\ImGuiManager.cpp" />
     <ClCompile Include="Source\Engine\Graphics\DirectXBase.cpp" />
+    <ClCompile Include="Source\Engine\Graphics\ViewCamera.cpp" />
+    <ClCompile Include="Source\Engine\Graphics\MaltiCamera.cpp" />
     <ClCompile Include="Source\Engine\Graphics\SRVInformationManager.cpp" />
     <ClCompile Include="Source\Engine\Graphics\SpriteBase.cpp" />
     <ClCompile Include="Source\Engine\Graphics\Sprite.cpp" />
     <ClCompile Include="Source\Engine\Debug\D3DResourceLeakChecker.cpp" />
     <ClCompile Include="Source\Engine\Input\Input.cpp" />
     <ClCompile Include="Source\Engine\Core\Logger.cpp" />
+    <ClInclude Include="Source\App\DemoScene.h" />
+    <ClCompile Include="Source\App\DemoScene.cpp">
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
+      <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
+    </ClCompile>
+    <ClCompile Include="Source\App\DemoSceneParticles.cpp">
+      <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
+      <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
+    </ClCompile>
+    <ClCompile Include="Source\App\DemoSceneImGui.cpp" />
+    <ClCompile Include="Source\App\DemoSceneSmoke.cpp" />
     <ClCompile Include="Source\App\main.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
@@ -192,6 +205,8 @@
     <ClInclude Include="Source\Engine\Debug\DebugCamera.h" />
     <ClInclude Include="Source\Engine\Debug\ImGuiManager.h" />
     <ClInclude Include="Source\Engine\Graphics\DirectXBase.h" />
+    <ClInclude Include="Source\Engine\Graphics\ViewCamera.h" />
+    <ClInclude Include="Source\Engine\Graphics\MaltiCamera.h" />
     <ClInclude Include="Source\Engine\Graphics\SRVInformationManager.h" />
     <ClInclude Include="Source\Engine\Graphics\SpriteBase.h" />
     <ClInclude Include="Source\Engine\Graphics\Sprite.h" />

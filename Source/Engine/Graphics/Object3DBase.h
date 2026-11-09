@@ -14,6 +14,7 @@
 
 class DirectXBase;
 class Model;
+class ViewCamera;
 
 // 配置・変換・ライトと共通描画設定を担当する。見た目はModelを参照する。
 // ルートシグネチャとPSOは同じデバイスのインスタンス間で共有し、画像はTextureManagerから借りる。
@@ -68,12 +69,12 @@ public:
     Object3DBase(const Object3DBase&) = delete;
     Object3DBase& operator=(const Object3DBase&) = delete;
 
-    void Initialize(DirectXBase* directXBase);
+    void Initialize(DirectXBase* directXBase, const ViewCamera* defaultCamera = nullptr);
     // GPU完了待ち後、TextureManager・DirectXBaseの終了前に呼ぶ。
     void Finalize();
     void Update();
-    // デバッグカメラなど、アプリ側のビュー・投影行列を使う場合。
-    void Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix);
+    // カメラは借りる。参照先を先に更新し、描画中は有効な状態で保持する。
+    void SetCamera(const ViewCamera* camera) { viewCamera_ = camera; }
     // PreDraw後、全3DオブジェクトのDrawの直前に1回呼ぶ。
     void SetCommonRenderState(BlendMode blendMode = kBlendModeNone) const;
     // 共通描画設定後に呼ぶ。個別のバッファと画像を設定して描画する。
@@ -93,8 +94,6 @@ public:
     DirectXBase* GetDirectXBase() const { return directXBase_; }
     FKEngine::Transform& GetTransform() { return transform_; }
     const FKEngine::Transform& GetTransform() const { return transform_; }
-    FKEngine::Transform& GetCameraTransform() { return cameraTransform_; }
-    const FKEngine::Transform& GetCameraTransform() const { return cameraTransform_; }
     DirectionalLight& GetDirectionalLight() { return directionalLight_; }
     const DirectionalLight& GetDirectionalLight() const { return directionalLight_; }
     PointLight& GetPointLight() { return pointLight_; }
@@ -119,7 +118,7 @@ private:
     DirectXBase* directXBase_ = nullptr; // 非所有
     Model* model_ = nullptr; // 非所有
     FKEngine::Transform transform_{ {1.0f, 1.0f, 1.0f}, {}, {0.0f, 1.0f, 0.0f} };
-    FKEngine::Transform cameraTransform_{ {1.0f, 1.0f, 1.0f}, {0.38f, 0.0f, 0.0f}, {0.0f, 6.0f, -16.0f} };
+    const ViewCamera* viewCamera_ = nullptr;
     TransformationMatrix transformationMatrix_;
     DirectionalLight directionalLight_;
     PointLight pointLight_;

@@ -7,14 +7,8 @@ void DebugCamera::Initialize(uint32_t clientWidth, uint32_t clientHeight)
 	translation_ = { 0.0f, 0.0f, -50.0f };
 	matRot_ = Math::MakeIdentity4x4();
 
-	// 射影行列の作成
-	float aspectRatio = static_cast<float>(clientWidth) / static_cast<float>(clientHeight);
-	projectionMatrix_ = Math::MakePerspectiveFovMatrix(0.45f, aspectRatio, 0.1f, 100.0f);
-
-	// ビュー行列の初期化
-	Matrix4x4 translateMatrix = Math::MakeTranslateMatrix(translation_);
-	Matrix4x4 worldMatrix = Math::Multiply(matRot_, translateMatrix);
-	viewMatrix_ = Math::Inverse(worldMatrix);
+	camera_.SetAspectRatio(static_cast<float>(clientWidth) / static_cast<float>(clientHeight));
+	UpdateView();
 }
 
 void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLeftMouseDown)
@@ -147,19 +141,16 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 		translation_ = Vector3::Add(translation_, move);
 	}
 
-	// ============================================================
-	// ビュー行列の更新
-	// 変化した座標や角度をもとにカメラのワールド行列を再計算し、
-	// ワールド行列の逆行列をビュー行列に代入する。
-	// ============================================================
+	UpdateView();
+}
 
+void DebugCamera::SetTranslation(const Vector3& translation)
+{
+	translation_ = translation;
+	UpdateView();
+}
 
-	// 座標から平行移動行列を計算する
-	Matrix4x4 translateMatrix = Math::MakeTranslateMatrix(translation_);
-
-	// 回転行列と平行移動行列からワールド行列を計算する
-	Matrix4x4 worldMatrix = matRot_ * translateMatrix;
-
-	// ワールド行列の逆行列をビュー行列に代入する
-	viewMatrix_ = Math::Inverse(worldMatrix);
+void DebugCamera::UpdateView()
+{
+	camera_.UpdateFromWorldMatrix(matRot_ * Math::MakeTranslateMatrix(translation_));
 }

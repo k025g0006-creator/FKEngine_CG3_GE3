@@ -66,6 +66,12 @@
     <ClCompile Include="Source\Engine\Graphics\DirectXBase.cpp">
       <Filter>Source\Engine\Graphics</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\ViewCamera.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Graphics\MaltiCamera.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClCompile>
     <ClCompile Include="Source\Engine\Graphics\SRVInformationManager.cpp">
       <Filter>Source\Engine\Graphics</Filter>
     </ClCompile>
@@ -77,6 +83,21 @@
     </ClCompile>
     <ClCompile Include="Source\Engine\Core\Logger.cpp">
       <Filter>Source\Engine\Core</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\App\DemoScene.h">
+      <Filter>Source\App</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\App\DemoScene.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\App\DemoSceneParticles.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\App\DemoSceneImGui.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\App\DemoSceneSmoke.cpp">
+      <Filter>Source\App</Filter>
     </ClCompile>
     <ClCompile Include="Source\App\main.cpp">
       <Filter>Source\App</Filter>
@@ -130,6 +151,12 @@
       <Filter>Source\Engine\Debug</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Graphics\DirectXBase.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\ViewCamera.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Graphics\MaltiCamera.h">
       <Filter>Source\Engine\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Graphics\SRVInformationManager.h">

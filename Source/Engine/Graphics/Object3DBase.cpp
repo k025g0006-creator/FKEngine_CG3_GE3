@@ -3,7 +3,7 @@
 #include "ModelManager.h"
 #include "DirectXBase.h"
 #include "TextureManager.h"
-#include "WinApp.h"
+#include "ViewCamera.h"
 #include <array>
 #include <stdexcept>
 
@@ -32,7 +32,7 @@ void CreateConstantBuffer(DirectXBase* dx, Microsoft::WRL::ComPtr<ID3D12Resource
 
 }
 
-void Object3DBase::Initialize(DirectXBase* directXBase)
+void Object3DBase::Initialize(DirectXBase* directXBase, const ViewCamera* defaultCamera)
 {
     if (directXBase_ || !directXBase || !directXBase->GetDevice() ||
         !directXBase->GetCommandList()) {
@@ -47,6 +47,7 @@ void Object3DBase::Initialize(DirectXBase* directXBase)
             CreateGraphicsPipelineState();
         }
         CreateConstantBuffers();
+        SetCamera(defaultCamera);
         Update();
         // 完全な描画状態だけを公開する。最後のインスタンスの終了で自動解放される。
         sharedRenderState_ = renderState_;
@@ -69,6 +70,7 @@ void Object3DBase::Finalize()
     pointLightData_ = nullptr;
     spotLightData_ = nullptr;
     model_ = nullptr;
+    viewCamera_ = nullptr;
     renderState_.reset();
     directXBase_ = nullptr;
 }
@@ -98,22 +100,12 @@ void Object3DBase::SetModel(const std::string& filePath)
 
 void Object3DBase::Update()
 {
-    const Matrix4x4 cameraMatrix = Math::MakeAffineMatrix(cameraTransform_.scale, cameraTransform_.rotate, cameraTransform_.translate);
-    const Matrix4x4 viewMatrix = Math::Inverse(cameraMatrix);
-    const Matrix4x4 projectionMatrix = Math::MakePerspectiveFovMatrix(0.45f,
-        static_cast<float>(WinApp::kClientWidth) / static_cast<float>(WinApp::kClientHeight), 0.1f, 100.0f);
-    Update(viewMatrix, projectionMatrix);
-}
-
-void Object3DBase::Update(const Matrix4x4& viewMatrix, const Matrix4x4& projectionMatrix)
-{
     if (!directXBase_ || !transformationData_) { throw std::logic_error("Initialize Object3DBase before Update."); }
     const Matrix4x4 worldMatrix = Math::MakeAffineMatrix(transform_.scale, transform_.rotate, transform_.translate);
     transformationMatrix_.World = worldMatrix;
-    transformationMatrix_.WVP = Math::Multiply(worldMatrix, Math::Multiply(viewMatrix, projectionMatrix));
+    transformationMatrix_.WVP = viewCamera_ ? Math::Multiply(worldMatrix, viewCamera_->GetViewProjectionMatrix()) : worldMatrix;
     transformationMatrix_.WorldInverseTranspose = Math::Transpose(Math::Inverse(worldMatrix));
-    const Matrix4x4 cameraWorld = Math::Inverse(viewMatrix);
-    camera_.worldPosition = { cameraWorld.m[3][0], cameraWorld.m[3][1], cameraWorld.m[3][2] };
+    camera_.worldPosition = viewCamera_ ? viewCamera_->GetWorldPosition() : Vector3{};
     *transformationData_ = transformationMatrix_;
     *directionalLightData_ = directionalLight_;
     *cameraData_ = camera_;

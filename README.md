@@ -10,7 +10,7 @@
 
 | 場所 | 内容 |
 | --- | --- |
-| `Source/App` | アプリケーションの開始処理とシーン（main.cpp） |
+| `Source/App` | 起動・フレーム進行（main.cpp）とサンプルシーン（DemoScene） |
 | `Source/Engine/Core` | ウィンドウ、ログ、文字列処理 |
 | `Source/Engine/Graphics` | DirectX基盤と描画リソース |
 | `Source/Engine/Input` | 入力処理 |
@@ -50,7 +50,7 @@ mainを動作確認済みの共通版として使います。GE3のクラス化�
 3. 変更をコミットしたらmainへマージし、競合は両方の機能が残るように解消します。
 4. Debug・Development・Releaseをビルドし、実行時に使うHLSLも確認してからmainをpushします。
 
-ソースは`Source/App/main.cpp`、シェーダーは`Resources/Shaders`が使用中のファイルです。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+アプリの起動とフレーム進行は`Source/App/main.cpp`、シーンの処理は`Source/App/DemoScene`に分けています。ImGuiの設定項目、パーティクル、スモークテストはそれぞれ`DemoSceneImGui.cpp`、`DemoSceneParticles.cpp`、`DemoSceneSmoke.cpp`にあります。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
 
 起動と描画の確認には`FKAlpha.exe --smoke-test`も使えます。3フレーム描画後に通常の終了処理で終了し、実行ファイル横の`Logs`へ確認結果を残します。このモードでは確認中の音声再生を省きます。
 
@@ -166,9 +166,11 @@ object.SetTranslate({ 0.0f, 1.0f, 0.0f });
 
 同じModelを複数のObject3DBaseへSetModelでき、頂点・材質・画像を共有しながらTransformを個別に変更できます。SetScale/GetScale、SetRotate/GetRotate、SetTranslate/GetTranslateを用意しています。Modelの材質や画像を変更すると、そのModelを参照するすべての配置へ反映されます。mainでは1つの球Modelを2つのObject3DBaseへ割り当て、異なる位置に同時表示しています。
 
-Update()はカメラTransformからビュー・透視投影を作成し、Update(view, projection)はデバッグカメラなど外部の行列を利用します。World・WVP・法線用逆転置行列は各Object3DBaseが保持します。描画順はDirectXBase::PreDraw → SRVInformationManager::PreDraw → Object3DBase::SetCommonRenderState → 各Object3DBase::Draw（Model::Drawを呼出）→ Particle → Spriteです。
+ViewCameraがワールド・ビュー・投影・ビュー投影行列を計算します。Object3DBaseはSetCameraでカメラを参照し、World・WVP・法線用逆転置行列を個別に保持します。カメラ未指定時はWVPにWorldを使います。描画順はDirectXBase::PreDraw → SRVInformationManager::PreDraw → Object3DBase::SetCommonRenderState → 各Object3DBase::Draw（Model::Drawを呼出）→ Particle → Spriteです。
 
 GPU完了後にObject3DBaseをすべてFinalizeし、手続き生成Model → ModelManager → TextureManager → DirectXBaseの順に解放します。ModelManagerが管理するModelとModelBaseは内部で解放されます。SetModelは所有権を移さないため、参照中のModelを先に破棄しないでください。ParticleもModelの頂点を借りて専用パイプラインで描画します。
+
+MaltiCameraは複数のViewCameraを所有し、描画に使う1台を選びます。F2またはImGuiの「使用するカメラ」で標準・斜め・俯瞰を切り替えられます。ImGuiでは選択したカメラの位置、回転、垂直視野角、アスペクト比、クリップ距離を変更できます。F1でデバッグカメラを切り替えます。描画前に選択中のカメラを更新し、3DオブジェクトとParticleでビュー投影行列を共有します。
 
 smoke-testでは同じModelの共有と配置の独立性、Transformのsetter/getter、ModelなしのUpdate/Draw、非均一スケールの法線変換、カメラ行列、読込失敗後の再初期化を検証し、3フレーム描画します。
 

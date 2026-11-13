@@ -51,6 +51,12 @@
     <ClCompile Include="Sound.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
+    <ClCompile Include="EffekseerSceneEffect.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="BlackHoleEffect.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
     <ClCompile Include="DebugCamera.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
@@ -69,6 +75,12 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="EffekseerSceneEffect.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="BlackHoleEffect.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
     <ClInclude Include="Matrix4x4.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
@@ -115,6 +127,15 @@
     </Text>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Resources\Effekseer\CosmicMist\CosmicMist.efkefc">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="BlackHole.VS.hlsl">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="BlackHole.PS.hlsl">
+      <Filter>リソース ファイル</Filter>
+    </None>
     <None Include="packages.config" />
     <None Include="Resources\plane.gltf">
       <Filter>リソース ファイル</Filter>

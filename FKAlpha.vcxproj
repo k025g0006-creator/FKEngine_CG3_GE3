@@ -148,7 +148,24 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
 copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dxil.dll"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+  <PropertyGroup>
+    <EffekseerSdkDir Condition="'$(EffekseerSdkDir)' == ''">$(MSBuildProjectDirectory)\x64\EffekseerSDK</EffekseerSdkDir>
+    <EffekseerLibSuffix Condition="'$(Configuration)' == 'Debug'">d</EffekseerLibSuffix>
+    <EnableEffekseer Condition="'$(EnableEffekseer)' == '' and Exists('$(EffekseerSdkDir)\lib\EffekseerRendererDX12$(EffekseerLibSuffix).lib')">true</EnableEffekseer>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(EnableEffekseer)' == 'true'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(EffekseerSdkDir)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>FK_ENABLE_EFFEKSEER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>$(EffekseerSdkDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Effekseer$(EffekseerLibSuffix).lib;EffekseerRendererDX12$(EffekseerLibSuffix).lib;EffekseerRendererLLGI$(EffekseerLibSuffix).lib;EffekseerRendererCommon$(EffekseerLibSuffix).lib;LLGI$(EffekseerLibSuffix).lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="BlackHoleEffect.cpp" />
+    <ClCompile Include="EffekseerSceneEffect.cpp" Condition="'$(EnableEffekseer)' == 'true'" />
     <ClCompile Include="DebugCamera.cpp" />
     <ClCompile Include="externals\imgui\imgui.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -216,6 +233,8 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="BlackHoleEffect.h" />
+    <ClInclude Include="EffekseerSceneEffect.h" />
     <ClInclude Include="DebugCamera.h" />
     <ClInclude Include="externals\imgui\imconfig.h" />
     <ClInclude Include="externals\imgui\imgui.h" />
@@ -234,6 +253,9 @@ copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxil.dll" "$(TargetDir)dx
     <Text Include="externals\imgui\LICENSE.txt" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="BlackHole.VS.hlsl" />
+    <None Include="BlackHole.PS.hlsl" />
+    <None Include="Resources\Effekseer\CosmicMist\CosmicMist.efkefc" />
     <None Include="Object3d.hlsli" />
     <None Include="packages.config" />
     <None Include="Resources\plane.gltf" />

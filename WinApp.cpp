@@ -38,7 +38,7 @@ void WinApp::Initialize()
 
 	hwnd_ = CreateWindow(
 		wc_.lpszClassName,
-		L"CG2-01",
+		L"CG3",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT,
 		CW_USEDEFAULT,
@@ -58,9 +58,9 @@ void WinApp::Finalize()
 	UnregisterClass(wc_.lpszClassName, wc_.hInstance);
 }
 
-bool WinApp::ProcessMessage()
+bool WinApp::ProcessMessage(MSG& msg)
 {
-	MSG msg{};
+	msg = {};
 
 	if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
 	{

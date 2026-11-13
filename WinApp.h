@@ -18,8 +18,8 @@ public:
 	// ウィンドウの終了処理
 	void Finalize();
 
-	// メッセージ処理。終了メッセージ(WM_QUIT)が来たらtrueを返す
-	bool ProcessMessage();
+	// メッセージを処理して呼び出し元にも渡す。WM_QUITならtrueを返す
+	bool ProcessMessage(MSG& msg);
 
 	// ウィンドウハンドルの取得
 	HWND GetHwnd() const { return hwnd_; }

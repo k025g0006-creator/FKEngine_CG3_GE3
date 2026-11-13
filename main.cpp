@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <windowsx.h>
 #include <cstdint>
 #include <string>
 #include <format>
@@ -12,6 +13,7 @@
 #pragma comment(lib, "dxgi.lib")
 #include <cassert>
 #include <algorithm>
+#include <cmath>
 #include <dbghelp.h>
 #pragma comment(lib, "Dbghelp.lib")
 #include <strsafe.h>
@@ -43,6 +45,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg
 #include <stdexcept>
 
 #include "externals/DirectXTex/d3dx12.h"
+#include "BlackHoleEffect.h"
+#ifdef FK_ENABLE_EFFEKSEER
+#include "EffekseerSceneEffect.h"
+#endif
 #include "Matrix4x4.h"
 #include "ResourceObject.h"
 #include "Sound.h"
@@ -86,6 +92,14 @@ struct ParticleForGPU
 	Matrix4x4 World;
 	Vector4 color;
 };
+
+struct BlackHoleForGPU
+{
+	Matrix4x4 WVP;
+	Vector4 color;
+	Vector4 style; // 模様の種類、経過時間、エネルギー、予約
+};
+static_assert(sizeof(BlackHoleForGPU) == 96);
 
 struct VertexData
 {
@@ -171,6 +185,32 @@ struct Particle
 	float lifeTime;
 	float currentTime;
 };
+
+enum ClickPattern
+{
+	kClickPatternCycle,
+	kClickPatternFirework,
+	kClickPatternShockwave,
+	kClickPatternStar,
+	kClickPatternHeart,
+	kClickPatternSpiral,
+	kClickPatternBlackHole,
+	kClickPatternCount,
+};
+
+struct ClickParticle
+{
+	Vector2 position;
+	Vector2 velocity;
+	Vector4 color;
+	float radius;
+	float lifeTime;
+	float age;
+};
+
+constexpr uint32_t kClickPatternPoints = 50;
+constexpr uint32_t kClickBurstSize = kClickPatternPoints + 1;
+constexpr uint32_t kMaxClickParticles = 10 * kClickBurstSize;
 
 // Particleを発生させる装置
 struct Emitter
@@ -716,6 +756,95 @@ std::list<Particle> Emit(const Emitter& emitter, std::mt19937& randomEngine)
 		particles.push_back(MakeNewParticle(randomEngine, emitter.transform.translate));
 	}
 	return particles;
+}
+
+void EmitClickBurst(std::vector<ClickParticle>& particles, ClickPattern pattern, const POINT& origin,
+	std::mt19937& randomEngine)
+{
+	constexpr float pi = std::numbers::pi_v<float>;
+	const Vector2 center{ static_cast<float>(origin.x), static_cast<float>(origin.y) };
+	const size_t freeSlots = kMaxClickParticles - particles.size();
+	if (freeSlots < kClickBurstSize)
+	{
+		particles.erase(particles.begin(), particles.begin() + (kClickBurstSize - freeSlots));
+	}
+
+	// クリックの瞬間が分かるよう、模様の中心を短く光らせる。
+	particles.push_back({ center, { 0.0f, 0.0f }, { 0.8f, 0.95f, 1.0f, 1.0f }, 18.0f, 0.22f, 0.0f });
+	std::uniform_real_distribution<float> randomUnit(0.0f, 1.0f);
+	for (uint32_t i = 0; i < kClickPatternPoints; ++i)
+	{
+		const float progress = static_cast<float>(i) / kClickPatternPoints;
+		const float angle = 2.0f * pi * progress;
+		const Vector2 direction{ std::cos(angle), std::sin(angle) };
+		Vector2 offset{ 0.0f, 0.0f };
+		Vector2 velocity{ 0.0f, 0.0f };
+		Vector4 color{};
+		float radius = 5.0f;
+		float lifeTime = 0.9f;
+
+		switch (pattern)
+		{
+		case kClickPatternFirework:
+		{
+			const float speed = 65.0f + 155.0f * randomUnit(randomEngine);
+			velocity = { direction.x * speed, direction.y * speed };
+			color = i % 3 == 0 ? Vector4{ 0.35f, 0.55f, 1.0f, 1.0f } : Vector4{ 1.0f, 0.55f, 0.10f, 1.0f };
+			radius = 3.0f + 5.0f * randomUnit(randomEngine);
+			lifeTime = 0.45f + 0.55f * randomUnit(randomEngine);
+			break;
+		}
+		case kClickPatternShockwave:
+			offset = { direction.x * 10.0f, direction.y * 10.0f };
+			velocity = { direction.x * 145.0f, direction.y * 145.0f };
+			color = { 0.1f, 0.85f, 1.0f, 1.0f };
+			radius = 7.0f;
+			lifeTime = 0.7f;
+			break;
+		case kClickPatternStar:
+		{
+			// 外側と内側の頂点を交互に結んで五芒星の輪郭を作る。
+			constexpr uint32_t pointsPerEdge = kClickPatternPoints / 10;
+			const uint32_t edge = i / pointsPerEdge;
+			const float t = static_cast<float>(i % pointsPerEdge) / pointsPerEdge;
+			const float start = static_cast<float>(edge) * pi / 5.0f - pi / 2.0f;
+			const float end = start + pi / 5.0f;
+			const float startRadius = edge % 2 == 0 ? 50.0f : 23.0f;
+			const float endRadius = edge % 2 == 0 ? 23.0f : 50.0f;
+			offset = {
+				std::lerp(std::cos(start) * startRadius, std::cos(end) * endRadius, t),
+				std::lerp(std::sin(start) * startRadius, std::sin(end) * endRadius, t),
+			};
+			velocity = { offset.x * 0.7f, offset.y * 0.7f };
+			color = { 1.0f, 0.85f, 0.22f, 1.0f };
+			break;
+		}
+		case kClickPatternHeart:
+		{
+			const float x = direction.y;
+			const float y = 13.0f * direction.x - 5.0f * std::cos(2.0f * angle)
+				- 2.0f * std::cos(3.0f * angle) - std::cos(4.0f * angle);
+			offset = { 3.0f * 16.0f * x * x * x, -3.0f * (y + 2.5f) };
+			velocity = { offset.x * 0.5f, offset.y * 0.5f };
+			color = { 1.0f, 0.12f + 0.4f * progress, 0.48f, 1.0f };
+			break;
+		}
+		case kClickPatternSpiral:
+		{
+			const float armProgress = static_cast<float>(i / 2) / (kClickPatternPoints / 2 - 1);
+			const float turn = 2.4f * pi * armProgress + pi * static_cast<float>(i % 2);
+			const float distance = 7.0f + 54.0f * armProgress;
+			offset = { std::cos(turn) * distance, std::sin(turn) * distance };
+			velocity = { offset.x * 0.65f - offset.y, offset.y * 0.65f + offset.x };
+			color = i % 2 == 0 ? Vector4{ 0.15f, 0.85f, 1.0f, 1.0f } : Vector4{ 0.7f, 0.2f, 1.0f, 1.0f };
+			break;
+		}
+		default:
+			assert(false);
+			return;
+		}
+		particles.push_back({ { center.x + offset.x, center.y + offset.y }, velocity, color, radius, lifeTime, 0.0f });
+	}
 }
 
 // ---------------------------------------------
@@ -1301,6 +1430,37 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		assert(SUCCEEDED(hr));
 	}
 
+	// クリック演出はシーンに重ねて加算描画する。
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC clickParticlePipelineStateDesc = particlePipelineStateDesc;
+	clickParticlePipelineStateDesc.BlendState = CreateBlendDesc(kBlendModeAdd);
+	clickParticlePipelineStateDesc.DepthStencilState.DepthEnable = FALSE;
+	ComPtr<ID3D12PipelineState> clickParticlePipelineState;
+	hr = device->CreateGraphicsPipelineState(&clickParticlePipelineStateDesc,
+		IID_PPV_ARGS(&clickParticlePipelineState));
+	assert(SUCCEEDED(hr));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC instancedQuadPipelineStateDesc = clickParticlePipelineStateDesc;
+	instancedQuadPipelineStateDesc.BlendState = CreateBlendDesc(kBlendModeNone);
+	ComPtr<ID3D12PipelineState> instancedQuadPipelineState;
+	hr = device->CreateGraphicsPipelineState(&instancedQuadPipelineStateDesc, IID_PPV_ARGS(&instancedQuadPipelineState));
+	assert(SUCCEEDED(hr));
+
+	const auto blackHoleVertexShader = CompileShader(L"BlackHole.VS.hlsl",
+		L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+	const auto blackHolePixelShader = CompileShader(L"BlackHole.PS.hlsl",
+		L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC blackHolePipelineStateDesc = clickParticlePipelineStateDesc;
+	blackHolePipelineStateDesc.InputLayout.NumElements = 1; // POSITIONのみで模様を生成する。
+	blackHolePipelineStateDesc.VS = { blackHoleVertexShader->GetBufferPointer(), blackHoleVertexShader->GetBufferSize() };
+	blackHolePipelineStateDesc.PS = { blackHolePixelShader->GetBufferPointer(), blackHolePixelShader->GetBufferSize() };
+	// 黒い中心で背景を覆いながら、光は加算できるようにする。
+	blackHolePipelineStateDesc.BlendState = CreateBlendDesc(kBlendModeNormal);
+	blackHolePipelineStateDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+	blackHolePipelineStateDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_INV_SRC_ALPHA;
+	ComPtr<ID3D12PipelineState> blackHolePipelineState;
+	hr = device->CreateGraphicsPipelineState(&blackHolePipelineStateDesc, IID_PPV_ARGS(&blackHolePipelineState));
+	assert(SUCCEEDED(hr));
+
 	////////////////////////////// モデル読み込み ////////////////////////////
 	ModelData modelData = LoadModelFile("Resources", "plane.gltf");
 	ModelData terrainData = LoadModelFile("Resources", "terrain.obj");
@@ -1650,6 +1810,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// Transform変数を作る
 	FKEngine::Particle transform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{0.0f,1.0f,0.0f} };
 	FKEngine::Particle modelTransform{ {1.0f,1.0f,1.0f},{0.0f,0.0f,0.0f},{-3.0f,1.5f,0.0f} };
+	bool showParticlesOnly = true;
+	bool showInstancedQuads = false;
 	bool showModel = true;
 	bool modelDoubleSided = modelData.material.doubleSided;
 	bool applyRootNodeTransform = true;
@@ -1806,10 +1968,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	////////////////////////////// Instancing ////////////////////////////
 	const uint32_t kNumMaxInstance = 100; // 最大インスタンス数
+	constexpr uint32_t kInstancedQuadCount = 10;
+	constexpr uint32_t kInstancedQuadOffset = kNumMaxInstance + kMaxClickParticles;
 
 	// Instancing用のTransformationMatrixリソースを作る
 	Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource =
-		CreateBufferResource(device.Get(), sizeof(ParticleForGPU) * kNumMaxInstance);
+		CreateBufferResource(device.Get(), sizeof(ParticleForGPU) * (kInstancedQuadOffset + kInstancedQuadCount));
 
 	// 書き込むためのアドレスを取得
 	ParticleForGPU* instancingData = nullptr;
@@ -1838,8 +2002,72 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	D3D12_GPU_DESCRIPTOR_HANDLE instancingSrvHandleGPU = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, 3);
 	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc, instancingSrvHandleCPU);
 
+	// 同じバッファの後半をクリック演出専用のSRVとして参照する。
+	instancingSrvDesc.Buffer.FirstElement = kNumMaxInstance;
+	instancingSrvDesc.Buffer.NumElements = kMaxClickParticles;
+	constexpr uint32_t kClickParticleSrvIndex = 7;
+	const D3D12_GPU_DESCRIPTOR_HANDLE clickParticleSrv = GetGPUDescriptorHandle(
+		srvDescriptorHeap.Get(), descriptorSizeSRV, kClickParticleSrvIndex);
+	device->CreateShaderResourceView(instancingResource.Get(), &instancingSrvDesc,
+		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kClickParticleSrvIndex));
+	ParticleForGPU* const clickInstancingData = instancingData + kNumMaxInstance;
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC instancedQuadSrvDesc = instancingSrvDesc;
+	instancedQuadSrvDesc.Buffer.FirstElement = kInstancedQuadOffset;
+	instancedQuadSrvDesc.Buffer.NumElements = kInstancedQuadCount;
+	constexpr uint32_t kInstancedQuadSrvIndex = 9;
+	const auto instancedQuadSrv = GetGPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancedQuadSrvIndex);
+	device->CreateShaderResourceView(instancingResource.Get(), &instancedQuadSrvDesc,
+		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kInstancedQuadSrvIndex));
+
+	const auto blackHoleResource = CreateBufferResource(device.Get(), sizeof(BlackHoleForGPU) * BlackHoleEffect::kMaxSprites);
+	BlackHoleForGPU* blackHoleData = nullptr;
+	hr = blackHoleResource->Map(0, nullptr, reinterpret_cast<void**>(&blackHoleData));
+	assert(SUCCEEDED(hr));
+	D3D12_SHADER_RESOURCE_VIEW_DESC blackHoleSrvDesc = instancingSrvDesc;
+	blackHoleSrvDesc.Buffer.FirstElement = 0;
+	blackHoleSrvDesc.Buffer.NumElements = BlackHoleEffect::kMaxSprites;
+	blackHoleSrvDesc.Buffer.StructureByteStride = sizeof(BlackHoleForGPU);
+	constexpr uint32_t kBlackHoleSrvIndex = 8;
+	const D3D12_GPU_DESCRIPTOR_HANDLE blackHoleSrv = GetGPUDescriptorHandle(
+		srvDescriptorHeap.Get(), descriptorSizeSRV, kBlackHoleSrvIndex);
+	device->CreateShaderResourceView(blackHoleResource.Get(), &blackHoleSrvDesc,
+		GetCPUDescriptorHandle(srvDescriptorHeap.Get(), descriptorSizeSRV, kBlackHoleSrvIndex));
+
+	// クリック演出はオブジェクトの色やUV設定から独立させる。
+	const auto clickParticleMaterialResource = CreateBufferResource(device.Get(), sizeof(Material));
+	Material* clickParticleMaterial = nullptr;
+	hr = clickParticleMaterialResource->Map(0, nullptr, reinterpret_cast<void**>(&clickParticleMaterial));
+	assert(SUCCEEDED(hr));
+	*clickParticleMaterial = {};
+	clickParticleMaterial->color = { 1.0f, 1.0f, 1.0f, 1.0f };
+	clickParticleMaterial->uvTransform = MakeIdentity4x4();
+	clickParticleMaterialResource->Unmap(0, nullptr);
+
 	// CPU側のParticleはlistで管理する（最大数を予め決めなくてよい）
 	std::list<Particle> particles;
+	std::vector<ClickParticle> clickParticles;
+	clickParticles.reserve(kMaxClickParticles);
+	BlackHoleEffect blackHole;
+	const std::filesystem::path blackHoleSettingsPath = "blackhole.txt";
+	BlackHoleSettings savedBlackHoleSettings;
+	LoadBlackHoleSettings(blackHoleSettingsPath, savedBlackHoleSettings);
+	BlackHoleSettings draftBlackHoleSettings = savedBlackHoleSettings;
+#ifdef USE_IMGUI
+	const char* blackHoleEditorStatus = "";
+#endif
+#ifdef FK_ENABLE_EFFEKSEER
+	EffekseerSceneEffect cosmicMist;
+	if (!cosmicMist.Initialize(device.Get(), commandQueue.Get(), swapChainDesc.BufferCount,
+		swapChainResources[0]->GetDesc(), rtvDesc.Format, dsvDesc.Format,
+		u"Resources/Effekseer/CosmicMist/CosmicMist.efkefc"))
+	{
+		Log(logStream, "CosmicMist: failed to initialize Effekseer or load the effect.");
+	}
+#endif
+	int selectedClickPattern = kClickPatternCycle;
+	int nextClickPattern = kClickPatternFirework;
+	auto lastClickParticleUpdate = std::chrono::steady_clock::now();
 
 	// Particleを発生させるEmitter（どこから・何個・どのくらいの頻度で発生するか）
 	Emitter emitter{};
@@ -1889,7 +2117,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	while (true)
 	{
 		// ウィンドウのメッセージ処理。終了メッセージが来たらループを抜ける
-		if (winApp->ProcessMessage())
+		MSG windowMessage{};
+		if (winApp->ProcessMessage(windowMessage))
 		{
 			break;
 		}
@@ -1920,20 +2149,77 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 				isDebugCameraActive = !isDebugCameraActive;
 			}
 
-			// デバッグカメラの更新処理
-			if (isDebugCameraActive)
-			{
-				// マウス左ボタンが押されているか
-				bool isLeftMouseDown = (mouseState.rgbButtons[0] & 0x80) != 0;
-				debugCamera.Update(key, mouseState.lX, mouseState.lY, isLeftMouseDown);
-			}
-
+			bool blackHoleRequested = TriggerKey(DIK_B);
+			bool blackHolePreviewRequested = false;
+#ifdef FK_ENABLE_EFFEKSEER
+			bool cosmicMistRequested = TriggerKey(DIK_M);
+#endif
+			bool mouseCapturedByImGui = false;
 #ifdef USE_IMGUI
 			ImGui_ImplDX12_NewFrame();
 			ImGui_ImplWin32_NewFrame();
 			ImGui::NewFrame();
+			mouseCapturedByImGui = ImGui::GetIO().WantCaptureMouse;
+			blackHoleRequested = blackHoleRequested && !ImGui::GetIO().WantCaptureKeyboard;
 
 			ImGui::Begin("設定");
+			ImGui::Checkbox("パーティクルのみ表示", &showParticlesOnly);
+			ImGui::Checkbox("板ポリ10枚を表示", &showInstancedQuads);
+			const char* clickPatternNames[] = { "順番に切り替え", "花火", "衝撃波", "星", "ハート", "二重らせん", "ブラックホール" };
+			static_assert(IM_ARRAYSIZE(clickPatternNames) == kClickPatternCount);
+			ImGui::Combo("クリック時の模様", &selectedClickPattern, clickPatternNames, IM_ARRAYSIZE(clickPatternNames));
+			ImGui::TextUnformatted(isDebugCameraActive ? "画面を右クリックで発生" : "画面を左クリックで発生");
+			if (ImGui::Button("中央にブラックホールを出す (B)"))
+			{
+				blackHoleRequested = true;
+			}
+			if (ImGui::CollapsingHeader("ブラックホール Editor"))
+			{
+				ImGui::SliderInt("吸い込む粒の数", &draftBlackHoleSettings.orbitCount,
+					BlackHoleSettings::kMinOrbitCount, BlackHoleSettings::kMaxOrbitCount,
+					"%d", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SliderFloat("爆発までの時間", &draftBlackHoleSettings.pullDuration,
+					BlackHoleSettings::kMinPullDuration, BlackHoleSettings::kMaxPullDuration,
+					"%.2f 秒", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::ColorEdit3("主衝撃波の色", draftBlackHoleSettings.shockwaveColor.data());
+				blackHolePreviewRequested = ImGui::Button("編集中の設定でプレビュー");
+				if (ImGui::Button("設定を保存"))
+				{
+					if (SaveBlackHoleSettings(blackHoleSettingsPath, draftBlackHoleSettings))
+					{
+						savedBlackHoleSettings = draftBlackHoleSettings;
+						blackHoleEditorStatus = "blackhole.txt に保存しました";
+					}
+					else
+					{
+						blackHoleEditorStatus = "blackhole.txt に保存できませんでした";
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("保存済みの設定を読み込み"))
+				{
+					if (LoadBlackHoleSettings(blackHoleSettingsPath, savedBlackHoleSettings))
+					{
+						draftBlackHoleSettings = savedBlackHoleSettings;
+						blackHoleEditorStatus = "blackhole.txt を読み込みました";
+					}
+					else
+					{
+						blackHoleEditorStatus = "blackhole.txt を読み込めませんでした";
+					}
+				}
+				ImGui::TextUnformatted(blackHoleEditorStatus);
+			}
+#ifdef FK_ENABLE_EFFEKSEER
+			cosmicMistRequested = cosmicMistRequested && !ImGui::GetIO().WantCaptureKeyboard;
+			ImGui::BeginDisabled(!cosmicMist.IsReady());
+			if (ImGui::Button("CosmicMist を再生 (M)"))
+			{
+				cosmicMistRequested = true;
+			}
+			ImGui::EndDisabled();
+#endif
+			ImGui::Separator();
 			ImGui::ColorEdit4("色", colorArray);
 			const char* blendModeNames[] = { "なし", "通常", "加算", "減算", "乗算", "スクリーン" };
 			ImGui::Combo("オブジェクトの合成方法", &currentBlendMode, blendModeNames, IM_ARRAYSIZE(blendModeNames));
@@ -2083,6 +2369,112 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			ImGui::Render();
 #endif
 
+			// UIの操作ではカメラを回転させず、エフェクトも発生させない。
+			if (isDebugCameraActive)
+			{
+				const bool isLeftMouseDown = (mouseState.rgbButtons[0] & 0x80) != 0;
+				debugCamera.Update(key, mouseState.lX, mouseState.lY, isLeftMouseDown && !mouseCapturedByImGui);
+			}
+
+			const auto now = std::chrono::steady_clock::now();
+			const float clickDeltaTime = std::chrono::duration<float>(now - lastClickParticleUpdate).count();
+			lastClickParticleUpdate = now;
+			blackHole.Update(clickDeltaTime);
+			for (ClickParticle& particle : clickParticles)
+			{
+				particle.age += clickDeltaTime;
+				particle.position.x += particle.velocity.x * clickDeltaTime;
+				particle.position.y += particle.velocity.y * clickDeltaTime;
+			}
+			std::erase_if(clickParticles, [](const ClickParticle& particle) { return particle.age >= particle.lifeTime; });
+
+			uint32_t numClickInstances = 0;
+			uint32_t numQuadInstances = 0;
+			uint32_t numBlackHoleInstances = 0;
+			const UINT clickButton = isDebugCameraActive ? WM_RBUTTONDOWN : WM_LBUTTONDOWN;
+			const bool sceneClicked = windowMessage.hwnd == hwnd && windowMessage.message == clickButton && !mouseCapturedByImGui;
+			RECT clientRect{};
+			if ((showInstancedQuads || sceneClicked || !clickParticles.empty() || blackHoleRequested || blackHolePreviewRequested || blackHole.IsActive()) &&
+				GetClientRect(hwnd, &clientRect) && !IsRectEmpty(&clientRect))
+			{
+				const POINT clickPoint{ GET_X_LPARAM(windowMessage.lParam), GET_Y_LPARAM(windowMessage.lParam) };
+				if (sceneClicked && PtInRect(&clientRect, clickPoint))
+				{
+					int pattern = selectedClickPattern;
+					if (pattern == kClickPatternCycle)
+					{
+						pattern = nextClickPattern;
+						nextClickPattern = nextClickPattern == kClickPatternSpiral ? kClickPatternFirework : nextClickPattern + 1;
+					}
+					if (pattern == kClickPatternBlackHole)
+					{
+						blackHoleRequested = true;
+					}
+					else
+					{
+						EmitClickBurst(clickParticles, static_cast<ClickPattern>(pattern), clickPoint, randomEngine);
+					}
+				}
+				if (blackHolePreviewRequested)
+				{
+					blackHole.Start(randomEngine, draftBlackHoleSettings);
+				}
+				else if (blackHoleRequested)
+				{
+					// 起動中に保存された変更も、次の発動から使う。
+					LoadBlackHoleSettings(blackHoleSettingsPath, savedBlackHoleSettings);
+					blackHole.Start(randomEngine, savedBlackHoleSettings);
+				}
+
+				// 実際のクライアント領域を使い、リサイズ後もマウス座標と描画位置を一致させる。
+				const float clientWidth = static_cast<float>(clientRect.right);
+				const float clientHeight = static_cast<float>(clientRect.bottom);
+				const Matrix4x4 overlayProjection = MakeOrthographicMatrix(0.0f, 0.0f, clientWidth, clientHeight, 0.0f, 1.0f);
+				if (showInstancedQuads)
+				{
+					const float unit = (std::min)(clientWidth, clientHeight);
+					const float halfSize = unit * 0.16f;
+					// glTF の板は Y 上向き、画面座標は Y 下向き。
+					const Matrix4x4 scale = MakeScaleMatrix({ halfSize, -halfSize, 1.0f });
+					for (uint32_t i = 0; i < kInstancedQuadCount; ++i)
+					{
+						// 右下の板から描き、10枚の縁が少しずつ見えるように重ねる。
+						const float offset = 4.5f - static_cast<float>(i);
+						const Matrix4x4 translation = MakeTranslateMatrix({
+							clientWidth * 0.58f + offset * unit * 0.027f,
+							clientHeight * 0.50f + offset * unit * 0.018f, 0.5f });
+						ParticleForGPU& instance = instancingData[kInstancedQuadOffset + i];
+						instance.World = Multiply(scale, translation);
+						instance.WVP = Multiply(instance.World, overlayProjection);
+						instance.color = { 1.0f, 1.0f, 1.0f, 1.0f };
+					}
+					numQuadInstances = kInstancedQuadCount;
+				}
+				for (const ClickParticle& particle : clickParticles)
+				{
+					const float remaining = 1.0f - particle.age / particle.lifeTime;
+					const float radius = particle.radius * (0.45f + 0.55f * remaining);
+					ParticleForGPU& instance = clickInstancingData[numClickInstances++];
+					instance.World = Multiply(MakeScaleMatrix({ radius, radius, 1.0f }),
+						MakeTranslateMatrix({ particle.position.x, particle.position.y, 0.5f }));
+					instance.WVP = Multiply(instance.World, overlayProjection);
+					instance.color = particle.color;
+					instance.color.w *= remaining * remaining;
+				}
+				for (const BlackHoleSprite& sprite : blackHole.BuildSprites(clientWidth, clientHeight))
+				{
+					Matrix4x4 world = Multiply(MakeScaleMatrix({ sprite.halfSize.x, sprite.halfSize.y, 1.0f }),
+						MakeRotateZMatrix(sprite.rotation));
+					world.m[3][0] = sprite.position.x;
+					world.m[3][1] = sprite.position.y;
+					world.m[3][2] = 0.5f;
+					BlackHoleForGPU& instance = blackHoleData[numBlackHoleInstances++];
+					instance.WVP = Multiply(world, overlayProjection);
+					instance.color = { sprite.color[0], sprite.color[1], sprite.color[2], sprite.color[3] };
+					instance.style = { static_cast<float>(sprite.shape), sprite.time, sprite.energy, 0.0f };
+				}
+			}
+
 			//transform.rotate.y += 0.01f;
 
 
@@ -2113,6 +2505,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 			// 投影行列
 			Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(0.45f, float(kClientWidth) / float(kClientHeight), 0.1f, 100.0f);
+#ifdef FK_ENABLE_EFFEKSEER
+			if (cosmicMistRequested)
+			{
+				cosmicMist.Play();
+			}
+			cosmicMist.Update(clickDeltaTime, viewMatrix, projectionMatrix);
+#endif
 			Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(0.0f, 0.0f, float(kClientWidth), float(kClientHeight), 0.0f, 100.0f);
 
 			// 行列の合成
@@ -2289,8 +2688,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->SetGraphicsRootConstantBufferView(6, spotLightResource->GetGPUVirtualAddress());
 
 			// 地形を描画する
-			commandList->IASetVertexBuffers(0, 1, &terrainVertexBufferView);
-			commandList->DrawInstanced(UINT(terrainData.vertices.size()), 1, 0, 0);
+			if (!showParticlesOnly)
+			{
+				commandList->IASetVertexBuffers(0, 1, &terrainVertexBufferView);
+				commandList->DrawInstanced(UINT(terrainData.vertices.size()), 1, 0, 0);
+			}
 
 			// glTFモデルとモンスターボールは、それぞれの変換バッファで描画する
 			commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
@@ -2301,7 +2703,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel); // モデルのVBVを設定
 
 			//commandList->DrawInstanced(kVertexCount, 1, 0, 0);
-			if (showModel)
+			if (!showParticlesOnly && showModel)
 			{
 				commandList->SetPipelineState(modelDoubleSided
 					? doubleSidedGraphicsPipelineStates[currentBlendMode].Get()
@@ -2311,7 +2713,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 
 			// モンスターボールを1個だけ描画する（Enable LightingやLight Directionなどが効く）
-			if (showBall)
+			if (!showParticlesOnly && showBall)
 			{
 				commandList->SetPipelineState(graphicsPipelineStates[currentBlendMode].Get());
 				commandList->SetGraphicsRootConstantBufferView(1, wvpResource->GetGPUVirtualAddress());
@@ -2339,27 +2741,53 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			//commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 			///////////////////////////////////
 
+#ifdef FK_ENABLE_EFFEKSEER
+			if (cosmicMist.Draw(commandList.Get(), swapChainResources[backBufferIndex].Get()))
+			{
+				// Effekseer が設定したヒープから、CG3 のパーティクルと ImGui 用のヒープに戻す。
+				commandList->SetDescriptorHeaps(1, descriptorHeaps->GetAddressOf());
+			}
+#endif
+
 			////////////////// Particle(Instancing)の描画
 			// RootSignatureが変わるので、必要なものは全て設定し直す
-			if (useInstancing)
+			if ((useInstancing && numInstance > 0) || numQuadInstances > 0 || numClickInstances > 0 || numBlackHoleInstances > 0)
 			{
 				assert(kNumMaxInstance <= 100); // 確保したResourceの数を超えないようにする
 
 				commandList->SetGraphicsRootSignature(particleRootSignature.Get());
-				commandList->SetPipelineState(particlePipelineStates[currentParticleBlendMode].Get());
 				commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-				commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
-				// Instancing用のStructuredBufferのSRVを設定する
-				commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandleGPU);
-				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU3); // circle.png
-
 				commandList->IASetVertexBuffers(0, 1, &vertexBufferViewModel);
 
-				// 生きているParticleの数(numInstance)だけInstance描画を行う
-				if (numInstance > 0)
+				if (numQuadInstances > 0)
 				{
+					commandList->SetPipelineState(instancedQuadPipelineState.Get());
+					commandList->SetGraphicsRootConstantBufferView(0, clickParticleMaterialResource->GetGPUVirtualAddress());
+					commandList->SetGraphicsRootDescriptorTable(1, instancedQuadSrv);
+					commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU); // uvChecker.png
+					commandList->DrawInstanced(UINT(modelData.vertices.size()), numQuadInstances, 0, 0);
+				}
+				commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU3); // circle.png
+
+				if (useInstancing && numInstance > 0)
+				{
+					commandList->SetPipelineState(particlePipelineStates[currentParticleBlendMode].Get());
+					commandList->SetGraphicsRootConstantBufferView(0, materialResource->GetGPUVirtualAddress());
+					commandList->SetGraphicsRootDescriptorTable(1, instancingSrvHandleGPU);
 					commandList->DrawInstanced(UINT(modelData.vertices.size()), numInstance, 0, 0);
+				}
+				if (numClickInstances > 0)
+				{
+					commandList->SetPipelineState(clickParticlePipelineState.Get());
+					commandList->SetGraphicsRootConstantBufferView(0, clickParticleMaterialResource->GetGPUVirtualAddress());
+					commandList->SetGraphicsRootDescriptorTable(1, clickParticleSrv);
+					commandList->DrawInstanced(UINT(modelData.vertices.size()), numClickInstances, 0, 0);
+				}
+				if (numBlackHoleInstances > 0)
+				{
+					commandList->SetPipelineState(blackHolePipelineState.Get());
+					commandList->SetGraphicsRootDescriptorTable(1, blackHoleSrv);
+					commandList->DrawInstanced(UINT(modelData.vertices.size()), numBlackHoleInstances, 0, 0);
 				}
 			}
 			///////////////////////////////////

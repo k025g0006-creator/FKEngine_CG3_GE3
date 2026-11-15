@@ -393,12 +393,15 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS* exception)
 }
 
 Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
-	const std::wstring& filePath,
+	const std::wstring& fileName,
 	const wchar_t* profile,
 	IDxcUtils* dxcUtils,
 	IDxcCompiler3* dxcCompiler,
 	IDxcIncludeHandler* includeHandler)
 {
+	const std::filesystem::path shaderDirectory = L"Shaders";
+	const std::filesystem::path packagedPath = shaderDirectory / fileName;
+	const std::wstring filePath = std::filesystem::exists(packagedPath) ? packagedPath.wstring() : fileName;
 	OutputDebugStringW(std::format(L"Begin CompileShader, path:{}, profile:{}\n", filePath, profile).c_str());
 
 	Microsoft::WRL::ComPtr<IDxcBlobEncoding> shaderSource = nullptr;
@@ -415,6 +418,7 @@ Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
 		filePath.c_str(),
 		L"-E",L"main",
 		L"-T",profile,
+		L"-I",shaderDirectory.c_str(),
 		L"-Zi",L"-Qembed_debug",
 		L"-Od",
 		L"-Zpr",

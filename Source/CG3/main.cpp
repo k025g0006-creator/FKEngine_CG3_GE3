@@ -2207,14 +2207,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			mouseCapturedByImGui = ImGui::GetIO().WantCaptureMouse;
 			blackHoleRequested = blackHoleRequested && !ImGui::GetIO().WantCaptureKeyboard;
 
-			ImGui::Begin("設定");
-			ImGui::Checkbox("パーティクルのみ表示", &showParticlesOnly);
-			ImGui::Checkbox("板ポリ10枚を表示", &showInstancedQuads);
-			const char* clickPatternNames[] = { "順番に切り替え", "花火", "衝撃波", "星", "ハート", "二重らせん", "ブラックホール" };
-			static_assert(IM_ARRAYSIZE(clickPatternNames) == kClickPatternCount);
-			ImGui::Combo("クリック時の模様", &selectedClickPattern, clickPatternNames, IM_ARRAYSIZE(clickPatternNames));
-			ImGui::TextUnformatted(isDebugCameraActive ? "画面を右クリックで発生" : "画面を左クリックで発生");
-			if (ImGui::Button("中央にブラックホールを出す (B)"))
+			ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 16.0f, 16.0f),
+				ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
+			ImGui::Begin("CG3 エフェクト", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse);
+			if (ImGui::Button("中央にブラックホールを出す (B)", ImVec2(280.0f, 0.0f)))
 			{
 				blackHoleRequested = true;
 			}
@@ -2264,6 +2260,15 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 			}
 			ImGui::EndDisabled();
 #endif
+			ImGui::End();
+
+			ImGui::Begin("設定");
+			ImGui::Checkbox("パーティクルのみ表示", &showParticlesOnly);
+			ImGui::Checkbox("板ポリ10枚を表示", &showInstancedQuads);
+			const char* clickPatternNames[] = { "順番に切り替え", "花火", "衝撃波", "星", "ハート", "二重らせん", "ブラックホール" };
+			static_assert(IM_ARRAYSIZE(clickPatternNames) == kClickPatternCount);
+			ImGui::Combo("クリック時の模様", &selectedClickPattern, clickPatternNames, IM_ARRAYSIZE(clickPatternNames));
+			ImGui::TextUnformatted(isDebugCameraActive ? "画面を右クリックで発生" : "画面を左クリックで発生");
 			ImGui::Separator();
 			ImGui::ColorEdit4("色", colorArray);
 			const char* blendModeNames[] = { "なし", "通常", "加算", "減算", "乗算", "スクリーン" };

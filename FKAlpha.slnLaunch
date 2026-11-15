@@ -1,0 +1,14 @@
+[
+  {
+    "Name": "CG3",
+    "Projects": [
+      { "Path": "CG3.vcxproj", "Action": "Start" }
+    ]
+  },
+  {
+    "Name": "GE3 (FKAlpha)",
+    "Projects": [
+      { "Path": "FKAlpha.vcxproj", "Action": "Start" }
+    ]
+  }
+]

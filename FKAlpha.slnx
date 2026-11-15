@@ -14,8 +14,6 @@
   <Project Path="CG3.vcxproj" Id="3daa70cc-ec1d-456d-989a-86e0c5ac715f" />
   <Folder Name="/外部ライブラリ/">
     <Project Path="externals/DirectXTex/DirectXTex.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77" />
-    <Project Path="externals/imgui/imgui.vcxproj" Id="c84755b6-9685-49fa-b1b1-86376a8674a9">
-      <Build Solution="Development|*" Project="false" />
-    </Project>
+    <Project Path="externals/imgui/imgui.vcxproj" Id="c84755b6-9685-49fa-b1b1-86376a8674a9" />
   </Folder>
 </Solution>

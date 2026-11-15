@@ -30,7 +30,7 @@
 - 共通出力先：`../FKEngine_Build/`（現在の配置では`C:\FKEngine_Build`）
 - GE3 の実行ファイル：`../FKEngine_Build/Bin/x64/<構成>/FKAlpha.exe`
 - CG3 の実行ファイル：`../FKEngine_Build/Bin/x64/<構成>/CG3/CG3.exe`
-- 外部ライブラリ：`../FKEngine_Build/Lib/x64/<構成>/DirectXTex.lib`、Debug・Releaseでは`ImGui.lib`も生成
+- 外部ライブラリ：`../FKEngine_Build/Lib/x64/<構成>/DirectXTex.lib`、`ImGui.lib`
 - 中間ファイル：`../FKEngine_Build/Obj/x64/<構成>/<プロジェクト>/`
 - DirectXTexの生成シェーダー：`../FKEngine_Build/Generated/DirectXTex/x64/<構成>/`
 - 実行時ログ・クラッシュダンプ：実行ファイルの隣の`Logs/`・`Dumps/`
@@ -39,13 +39,13 @@
 
 Visual Studioでの作業ディレクトリは、`FKAlpha` がプロジェクトのルート、`CG3` が `CG3.exe` のある出力フォルダです。ビルド後には、必要な素材・シェーダー・DXCのDLLが各実行ファイルの隣にコピーされます。実行フォルダを別の場所へ渡すときは、実行ファイルに付属する `Resources`、設定、DLL も一緒にコピーしてください。
 
-DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドし、プロジェクト参照でリンクします。ImGui 1.93.0 は `FKAlpha` の Debug、`CG3` の Debug と Release で有効です。
+DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドし、プロジェクト参照でリンクします。ImGui 1.93.0 は `FKAlpha` の Debug と `CG3` の全構成で有効です。
 
 新しいC++ファイルは担当する`Source`配下に置いてプロジェクトへ登録し、ソリューションエクスプローラーでも同じフォルダのフィルターへ追加してください。
 
 ## GE3・CG3とmainの使い分け
 
-`main` を共通の作業基点とします。`FKAlpha.slnx` を開き、ソリューション エクスプローラーで起動したいプロジェクトをスタートアップ プロジェクトに設定します。`FKAlpha` は GE3 のクラス化されたエンジンとサンプルシーンです。`CG3` は glTF モデルとブラックホール演出を含む評価課題1のデモです。
+`main` を共通の作業基点とします。`FKAlpha.slnx` を開き、Visual Studio の起動メニューから `CG3` または `GE3 (FKAlpha)` を選びます。起動プロファイルが表示されない場合は、ソリューション エクスプローラーで起動したいプロジェクトをスタートアップ プロジェクトに設定します。`FKAlpha` は GE3 のクラス化されたエンジンとサンプルシーンです。`CG3` は glTF モデルとブラックホール演出を含む評価課題1のデモです。
 
 1. 作業前にmainを最新にし、新しい作業はmainから分けたブランチで進めます。
 2. 既存のGE3・CG3で続きを作る場合は、最初にmainをその作業ブランチへマージします。これにより整理後のファイル配置とクラス経由の呼び出しを引き継げます。
@@ -56,7 +56,7 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 
 ### CG3 評価課題1
 
-- **B キー** または ImGui の **中央にブラックホールを出す (B)** で演出を再生します。Editor では吸い込む粒の数、爆発までの時間、主衝撃波の色を調整し、その場でプレビューできます。保存先は CG3 の実行フォルダ内の `Resources/CG3/blackhole.txt` です。
+- **B キー** または ImGui の **CG3 エフェクト** にある **中央にブラックホールを出す (B)** で演出を再生します。Editor では吸い込む粒の数、爆発までの時間、主衝撃波の色を調整し、その場でプレビューできます。保存先は CG3 の実行フォルダ内の `Resources/CG3/blackhole.txt` です。
 - **M キー** または ImGui の **CosmicMistを再生 (M)** で CosmicMist を再生します。Effekseer の DirectX 12 SDK がある場合に有効です。準備するには、Visual Studio の開発者用 PowerShell で EffekseerForCpp 1.80.8 のソースを指定してからビルドしてください。
 
 ```powershell

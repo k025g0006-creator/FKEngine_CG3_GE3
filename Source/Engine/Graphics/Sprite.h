@@ -10,7 +10,7 @@
 
 class SpriteBase;
 
-// 1枚分のデータ。SpriteBaseは外側で、画像リソースとSRVはTextureManagerが保持する。
+// 1枚分のデータ。SpriteBaseは外側で、画像リソースはTextureManagerが保持する。
 class Sprite
 {
 public:
@@ -87,7 +87,7 @@ public:
     bool HasTexture() const { return textureIndex_ != UINT32_MAX; }
     const std::string& GetTextureFilePath() const { return textureFilePath_; }
     uint32_t GetTextureIndex() const { return textureIndex_; }
-    D3D12_GPU_DESCRIPTOR_HANDLE GetTextureHandle() const { return textureHandle_; }
+    D3D12_GPU_DESCRIPTOR_HANDLE GetTextureHandle() const;
 
 private:
     // Sprite専用シェーダーの入力・定数バッファと同じ並びにする。
@@ -125,7 +125,6 @@ private:
     void UpdateMaterial();
 
     SpriteBase* spriteBase_ = nullptr; // 所有しない
-    D3D12_GPU_DESCRIPTOR_HANDLE textureHandle_{};
     std::string textureFilePath_;
     uint32_t textureIndex_ = UINT32_MAX;
     Vector2 position_{ 0.0f, 0.0f };

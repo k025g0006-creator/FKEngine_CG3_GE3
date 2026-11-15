@@ -9,6 +9,7 @@
 #include <unordered_map>
 
 class DirectXBase;
+class SRVInformationManager;
 
 // ファイルパスとテクスチャを関連付けて共有する。メインスレッドから利用する。
 class TextureManager
@@ -17,8 +18,12 @@ public:
     static TextureManager* GetInstance();
     // Spriteの解放とGPU完了待ちの後、DirectXBaseの解放前に呼ぶ。
     static void Finalize();
-    void Initialize(DirectXBase* directXBase);
+    void Initialize(SRVInformationManager& srvManager);
     void LoadTexture(const std::string& filePath);
+    // テクスチャ番号と、共有ヒープ内のSRV番号は別々に管理する。
+    uint32_t GetSrvIndex(const std::string& filePath) const;
+    uint32_t GetSrvIndex(uint32_t textureIndex) const;
+    void BindTexture(UINT rootParameterIndex, uint32_t textureIndex) const;
     D3D12_GPU_DESCRIPTOR_HANDLE GetSrvHandleGPU(const std::string& filePath) const;
     D3D12_GPU_DESCRIPTOR_HANDLE GetSrvHandleGPU(uint32_t textureIndex) const;
     const DirectX::TexMetadata& GetMetadata(const std::string& filePath) const;
@@ -43,13 +48,13 @@ private:
         DirectX::TexMetadata metadata{};
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         Microsoft::WRL::ComPtr<ID3D12Resource> uploadResource;
-        D3D12_CPU_DESCRIPTOR_HANDLE srvHandleCPU{};
-        D3D12_GPU_DESCRIPTOR_HANDLE srvHandleGPU{};
+        uint32_t srvIndex = UINT32_MAX;
     };
     static std::wstring MakePathKey(const std::string& filePath);
     const TextureData& FindTexture(const std::string& filePath) const;
     static TextureManager* instance_;
     DirectXBase* directXBase_ = nullptr; // mainから借りる。所有しない。
+    SRVInformationManager* srvManager_ = nullptr; // mainから借りる。
     std::vector<TextureData> textureDatas_;
     std::unordered_map<std::wstring, uint32_t> textureIndices_;
 };

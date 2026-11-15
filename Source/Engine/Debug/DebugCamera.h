@@ -1,5 +1,5 @@
 #pragma once
-#include "Matrix4x4.h"
+#include "ViewCamera.h"
 #include <cstdint>
 
 class Input;
@@ -15,15 +15,16 @@ public:
 	void Update(const Input* input, long mouseX, long mouseY, bool isLeftMouseDown);
 
 	// ビュー行列を取得
-	const Matrix4x4& GetViewMatrix() const { return viewMatrix_; }
+	const Matrix4x4& GetViewMatrix() const { return camera_.GetViewMatrix(); }
 
 	// 射影行列を取得
-	const Matrix4x4& GetProjectionMatrix() const { return projectionMatrix_; }
+	const Matrix4x4& GetProjectionMatrix() const { return camera_.GetProjectionMatrix(); }
 
 	// カメラ座標の取得・設定
 	const Vector3& GetTranslation() const { return translation_; }
 
-	void SetTranslation(const Vector3& translation) { translation_ = translation; }
+	void SetTranslation(const Vector3& translation);
+	const ViewCamera& GetViewCamera() const { return camera_; }
 
 
 private:
@@ -31,11 +32,8 @@ private:
 	// ローカル座標
 	Vector3 translation_ = { 0.0f, 0.0f, -50.0f };
 
-	// ビュー行列
-	Matrix4x4 viewMatrix_{};
-
-	// 射影行列
-	Matrix4x4 projectionMatrix_{};
+	ViewCamera camera_;
+	void UpdateView();
 
 	// 累積回転行列
 	Matrix4x4 matRot_ = Math::MakeIdentity4x4();

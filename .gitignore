@@ -376,7 +376,7 @@ DirectXGame/imgui.ini
 # Shared seed; running applications save their own copy beside the executable.
 !/Config/imgui.ini
 
-# Local build outputs; the four GLFW libraries below are vendored inputs.
+# Local build outputs. The GLFW and Assimp libraries below are vendored inputs.
 *.exe
 *.dll
 *.lib
@@ -393,3 +393,5 @@ DirectXGame/imgui.ini
 !/Archive/ImGuiExamples_1.89.4/examples/libs/glfw/lib-vc2010-64/glfw3.lib
 !/Archive/Submission_LE2C_22/FKEngine/imgui-1.89.4/examples/libs/glfw/lib-vc2010-32/glfw3.lib
 !/Archive/Submission_LE2C_22/FKEngine/imgui-1.89.4/examples/libs/glfw/lib-vc2010-64/glfw3.lib
+!/externals/assimp/lib/Debug/assimp-vc143-mdd.lib
+!/externals/assimp/lib/Release/assimp-vc143-md.lib

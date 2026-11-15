@@ -143,8 +143,6 @@ void SpriteBase::SetCommonRenderState() const
 {
     if (!directXBase_) { throw std::logic_error("Initialize SpriteBase before drawing."); }
     auto* commandList = directXBase_->GetCommandList().Get();
-    ID3D12DescriptorHeap* heaps[] = { directXBase_->GetSRVDescriptorHeap().Get() };
-    commandList->SetDescriptorHeaps(_countof(heaps), heaps);
     commandList->SetGraphicsRootSignature(rootSignature_.Get());
     commandList->SetPipelineState(pipelineState_.Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

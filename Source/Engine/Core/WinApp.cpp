@@ -5,14 +5,13 @@
 #pragma comment(lib, "winmm.lib")
 
 #ifdef USE_IMGUI
-#include "imgui.h"
-extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+#include "ImGuiManager.h"
 #endif
 
 LRESULT CALLBACK WinApp::WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
 #ifdef USE_IMGUI
-	if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam))
+	if (ImGuiManager::HandleWindowMessage(hwnd, msg, wparam, lparam))
 	{
 		return true;
 	}

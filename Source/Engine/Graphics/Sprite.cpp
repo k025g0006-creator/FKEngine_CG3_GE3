@@ -52,7 +52,6 @@ void Sprite::Initialize(SpriteBase* spriteBase, uint32_t textureIndex)
         indexData_ = nullptr;
         materialData_ = nullptr;
         transformationMatrixData_ = nullptr;
-        textureHandle_ = {};
         textureFilePath_.clear();
         textureIndex_ = UINT32_MAX;
         spriteBase_ = nullptr;
@@ -74,7 +73,6 @@ void Sprite::SetTextureIndex(uint32_t textureIndex)
     if (textureIndex_ == textureIndex) { return; }
     if (textureIndex == UINT32_MAX) {
         textureIndex_ = UINT32_MAX;
-        textureHandle_ = {};
         textureFilePath_.clear();
         textureImageSize_ = { 1.0f, 1.0f };
         materialDirty_ = true;
@@ -83,11 +81,9 @@ void Sprite::SetTextureIndex(uint32_t textureIndex)
     auto* textures = TextureManager::GetInstance();
     // 範囲チェックを済ませてから状態を変更する。無効な番号でも元の画像は保持する。
     const std::string path = textures->GetTextureFilePath(textureIndex);
-    const auto handle = textures->GetSrvHandleGPU(textureIndex);
     const auto desc = textures->GetTextureBuffer(textureIndex)->GetDesc();
     textureFilePath_ = path;
     textureIndex_ = textureIndex;
-    textureHandle_ = handle;
     textureImageSize_ = { static_cast<float>(desc.Width), static_cast<float>(desc.Height) };
     materialDirty_ = true;
     // 後から変更する場合、表示サイズは保ち、切り出しだけを全体へ戻す。
@@ -244,6 +240,11 @@ void Sprite::UpdateMaterial()
     materialData_->uvTransform = Math::Multiply(crop, extra);
     materialData_->color = { color_[0], color_[1], color_[2], color_[3] };
 }
+D3D12_GPU_DESCRIPTOR_HANDLE Sprite::GetTextureHandle() const
+{
+    return HasTexture() ? TextureManager::GetInstance()->GetSrvHandleGPU(textureIndex_) : D3D12_GPU_DESCRIPTOR_HANDLE{};
+}
+
 void Sprite::Draw() const
 {
     if (!spriteBase_) { throw std::logic_error("Initialize Sprite before drawing."); }
@@ -253,6 +254,6 @@ void Sprite::Draw() const
     commandList->IASetIndexBuffer(&indexBufferView_);
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
     commandList->SetGraphicsRootConstantBufferView(1, transformationResource_->GetGPUVirtualAddress());
-    commandList->SetGraphicsRootDescriptorTable(2, textureHandle_);
+    TextureManager::GetInstance()->BindTexture(2, textureIndex_);
     commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 }

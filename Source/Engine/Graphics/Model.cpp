@@ -92,7 +92,7 @@ void Model::Draw() const
     auto* commands = GetDirectXBase()->GetCommandList().Get();
     commands->IASetVertexBuffers(0, 1, &vertexBufferView_);
     commands->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
-    commands->SetGraphicsRootDescriptorTable(2, TextureManager::GetInstance()->GetSrvHandleGPU(textureIndex_));
+    TextureManager::GetInstance()->BindTexture(2, textureIndex_);
     commands->DrawInstanced(static_cast<UINT>(modelData_.vertices.size()), 1, 0, 0);
 }
 

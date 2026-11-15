@@ -1,0 +1,4 @@
+BlackHoleSettings/1
+OrbitCount 581
+PullDuration 4.98999977
+ShockwaveColor 0.0253162384 0 1

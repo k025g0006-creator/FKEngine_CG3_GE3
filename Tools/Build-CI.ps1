@@ -19,7 +19,8 @@ $logDirectory = Join-Path $outputDirectory 'Logs'
 [IO.Directory]::CreateDirectory($logDirectory) | Out-Null
 
 # Fail early when a required source, model or texture was omitted from the repository.
-foreach ($relativeProject in @('FKAlpha.vcxproj', 'externals\DirectXTex\DirectXTex.vcxproj', 'externals\imgui\imgui.vcxproj')) {
+$applicationProjects = @('FKAlpha.vcxproj', 'CG3.vcxproj')
+foreach ($relativeProject in $applicationProjects + @('externals\DirectXTex\DirectXTex.vcxproj', 'externals\imgui\imgui.vcxproj')) {
     $projectPath = Join-Path $repositoryRoot $relativeProject
     [xml]$project = [IO.File]::ReadAllText($projectPath)
     foreach ($item in $project.SelectNodes('/*[local-name()="Project"]/*[local-name()="ItemGroup"]/*[@Include]')) {
@@ -31,7 +32,7 @@ foreach ($relativeProject in @('FKAlpha.vcxproj', 'externals\DirectXTex\DirectXT
 }
 $sources = @(
     Get-ChildItem (Join-Path $repositoryRoot 'Source') -Recurse -File -Include *.cpp, *.h
-    Get-ChildItem (Join-Path $repositoryRoot 'Resources\Shaders') -File
+    Get-ChildItem (Join-Path $repositoryRoot 'Resources\Shaders') -Recurse -File
 )
 foreach ($source in $sources) {
     if (Select-String -LiteralPath $source.FullName -Pattern '^(<<<<<<<|=======|>>>>>>>)' -Quiet) {
@@ -47,7 +48,7 @@ $installation = $installations | Where-Object { [version]$_.installationVersion 
 if (!$installation) { throw 'Visual Studio 2026 with the C++ v145 toolset is required.' }
 $msbuild = Join-Path $installation.installationPath 'MSBuild\Current\Bin\amd64\MSBuild.exe'
 if (!(Test-Path -LiteralPath $msbuild)) { throw "MSBuild was not found: $msbuild" }
-$applicationProject = Join-Path $repositoryRoot 'FKAlpha.vcxproj'
+$applicationProject = Join-Path $repositoryRoot $applicationProjects[0]
 $buildProperties = @(
     "/p:Configuration=$Configuration"
     '/p:Platform=x64'
@@ -57,7 +58,7 @@ $buildProperties = @(
 
 Push-Location $repositoryRoot
 try {
-    & $msbuild $applicationProject @buildProperties /m:1 /nr:false /nologo '/clp:ErrorsOnly;Summary' /fl "/flp:logfile=$logDirectory\Build-$Configuration.log;verbosity=normal;encoding=UTF-8"
+    & $msbuild (Join-Path $repositoryRoot 'FKAlpha.slnx') @buildProperties /m:1 /nr:false /nologo '/clp:ErrorsOnly;Summary' /fl "/flp:logfile=$logDirectory\Build-$Configuration.log;verbosity=normal;encoding=UTF-8"
     if ($LASTEXITCODE -ne 0) { throw "MSBuild failed for $Configuration (exit $LASTEXITCODE)." }
 
     # Use the Windows SDK selected by the project, rather than a machine-specific SDK path.
@@ -68,28 +69,43 @@ try {
     if (!(Test-Path -LiteralPath $dxc)) { throw "DXC was not found: $dxc" }
     $shaderOutput = Join-Path $outputDirectory "ShaderChecks\$Configuration"
     [IO.Directory]::CreateDirectory($shaderOutput) | Out-Null
-    $shaderSources = @(Get-ChildItem (Join-Path $repositoryRoot 'Resources\Shaders') -Filter *.hlsl -File)
+    $shaderRoot = Join-Path $repositoryRoot 'Resources\Shaders'
+    $shaderSources = @(Get-ChildItem $shaderRoot -Filter *.hlsl -Recurse -File)
     foreach ($shader in $shaderSources) {
         $profile = if ($shader.Name -like '*.VS.hlsl') { 'vs_6_0' } else { 'ps_6_0' }
-        & $dxc -E main -T $profile -Zpr -WX -I $shader.DirectoryName -Fo (Join-Path $shaderOutput ($shader.Name + '.dxil')) $shader.FullName
-        if ($LASTEXITCODE -ne 0) { throw "Shader compilation failed: $($shader.Name)" }
+        $relative = [IO.Path]::GetRelativePath($shaderRoot, $shader.FullName)
+        $compiled = Join-Path $shaderOutput "$relative.dxil"
+        [IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($compiled)) | Out-Null
+        & $dxc -E main -T $profile -Zpr -WX -I $shader.DirectoryName -Fo $compiled $shader.FullName
+        if ($LASTEXITCODE -ne 0) { throw "Shader compilation failed: $relative" }
     }
 
     $runtimeDirectory = Join-Path $outputDirectory "Bin\x64\$Configuration"
-    foreach ($name in @('FKAlpha.exe', 'dxcompiler.dll', 'dxil.dll', 'Config\imgui.ini')) {
+    $cg3RuntimeDirectory = Join-Path $runtimeDirectory 'CG3'
+    $runtimeFiles = @(
+        'FKAlpha.exe', 'dxcompiler.dll', 'dxil.dll', 'Config\imgui.ini'
+        'CG3\CG3.exe', 'CG3\dxcompiler.dll', 'CG3\dxil.dll', 'CG3\Assimp-LICENSE.txt'
+        'CG3\Resources\CG3\blackhole.txt'
+    )
+    foreach ($name in $runtimeFiles) {
         if (!(Test-Path -LiteralPath (Join-Path $runtimeDirectory $name) -PathType Leaf)) {
             throw "Missing runtime file: $name"
         }
     }
     foreach ($resource in Get-ChildItem (Join-Path $repositoryRoot 'Resources') -Recurse -File | Where-Object Extension -ne '.blend') {
         $relative = [IO.Path]::GetRelativePath((Join-Path $repositoryRoot 'Resources'), $resource.FullName)
-        $copy = Join-Path $runtimeDirectory "Resources\$relative"
-        if (!(Test-Path -LiteralPath $copy) -or (Get-FileHash -LiteralPath $copy).Hash -ne (Get-FileHash -LiteralPath $resource.FullName).Hash) {
-            throw "Missing or outdated runtime resource: $relative"
+        $sourceHash = (Get-FileHash -LiteralPath $resource.FullName).Hash
+        foreach ($directory in @($runtimeDirectory, $cg3RuntimeDirectory)) {
+            # CG3 can save settings in place after the initial copy.
+            if ($directory -eq $cg3RuntimeDirectory -and $relative -eq 'CG3\blackhole.txt') { continue }
+            $copy = Join-Path $directory "Resources\$relative"
+            if (!(Test-Path -LiteralPath $copy) -or (Get-FileHash -LiteralPath $copy).Hash -ne $sourceHash) {
+                throw "Missing or outdated runtime resource: $copy"
+            }
         }
     }
 
-    Write-Output "${Configuration}: C++ build, $($shaderSources.Count) shaders and runtime resource checks passed."
+    Write-Output "${Configuration}: FKAlpha and CG3 builds, $($shaderSources.Count) shaders and runtime resource checks passed."
 } finally {
     Pop-Location
 }

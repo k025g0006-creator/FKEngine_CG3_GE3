@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <FKEngineRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\'))</FKEngineRoot>
+    <FKEngineOutputRoot Condition="'$(FKEngineOutputRoot)' == ''">$([System.IO.Path]::GetFullPath('$(FKEngineRoot)..\FKEngine_Build\'))</FKEngineOutputRoot>
+    <IntDir>$(FKEngineOutputRoot)Obj\$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <OutDir Condition="'$(ConfigurationType)' == 'StaticLibrary'">$(FKEngineOutputRoot)Lib\$(Platform)\$(Configuration)\</OutDir>
+    <OutDir Condition="'$(ConfigurationType)' != 'StaticLibrary'">$(FKEngineOutputRoot)Bin\$(Platform)\$(Configuration)\</OutDir>
+    <LocalDebuggerWorkingDirectory>$(FKEngineRoot)</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+</Project>

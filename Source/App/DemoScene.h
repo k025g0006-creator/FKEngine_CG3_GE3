@@ -23,7 +23,8 @@ class TextureManager;
 class DemoScene
 {
 public:
-    void Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, bool smokeTest, std::ostream& log);
+    void Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, SpriteBase& spriteBase,
+        bool smokeTest, std::ostream& log);
     void UpdateCameraInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown);
     void Update(float deltaTime);
     void Draw();
@@ -73,7 +74,7 @@ private:
         "Resources/uvChecker.png", "Resources/monsterBall.png", "Resources/circle.png",
         "Resources/grass.png", "Resources/fence.png"
     };
-    SpriteBase spriteBase_;
+    SpriteBase* spriteBase_ = nullptr;
     std::vector<std::unique_ptr<Sprite>> sprites_;
     std::unique_ptr<Sprite> deferredSmokeSprite_;
     bool showSprites_ = true;

@@ -52,7 +52,7 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 3. 変更をコミットしたらmainへマージし、競合は両方の機能が残るように解消します。
 4. Debug・Development・Releaseをビルドし、実行時に使うHLSLも確認してからmainをpushします。
 
-アプリの起動とフレーム進行は`Source/App/main.cpp`、シーンの処理は`Source/App/DemoScene`に分けています。ImGuiの設定項目とスモークテストはそれぞれ`DemoSceneImGui.cpp`と`DemoSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+`Source/App/main.cpp` の `WinMain` は `Game` を作って `Run()` を呼びます。エンジン層の `Source/Engine/Core/FPFramework` はウィンドウ、DirectX、入力、ImGui、共有スプライト設定、音声デバイスとフレームループを管理します。アプリ層の `Game` は `FPFramework` を継承し、`Initialize()`・`Update()`・`Draw()`・`Finalize()` をオーバーライドして、`DemoScene` と BGM・SE を扱います。ImGuiのシーン設定とスモークテストはそれぞれ`DemoSceneImGui.cpp`と`DemoSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
 
 ### 音声ファイルの再生
 
@@ -129,7 +129,7 @@ Gitの除外規則と追跡済みファイルの確認には、[git ls-filesの�
 - Source/Engine/Graphics/SpriteBase：共通のRootSignature、PSO、専用シェーダー、画面サイズ。アプリ側で1つ生成します。
 - Source/Engine/Graphics/Sprite：1枚分の頂点・インデックス・定数バッファ、位置、サイズ、回転、基準点、色・透明度、UV。画像ごとに生成します。
 
-TextureManager::InitializeとSpriteBase::Initialize後に、Sprite::Initializeへ共通設定と画像ファイルパスを渡します。画像はTextureManagerが共有・保持します。SRVの割り当てはSRVInformationManagerが担当します。3D/Particleの描画後にSpriteBase::SetCommonRenderStateを1回呼び、各SpriteのUpdate、Drawを呼びます。各インスタンスのComPtrがバッファを解放するので、手動のReleaseは不要です。
+TextureManager::InitializeとSpriteBase::Initialize後に、Sprite::Initializeへ共通設定と画像ファイルパスを渡します。画像はTextureManagerが共有・保持します。SRVの割り当てはSRVInformationManagerが担当します。Spriteはシーンの更新時にUpdateを呼び、3D/Particleの描画後にSpriteBase::SetCommonRenderStateを1回呼んでからDrawします。各インスタンスのComPtrがバッファを解放するので、手動のReleaseは不要です。
 
 初期状態は同じSpriteBaseから2枚の画像を表示します。ImGuiの「スプライト」で操作対象を選び、位置・サイズ・回転・色・透明度・基準点・UVを個別に変更できます。初期UVは左上(0,0)、右下(1,1)です。
 SpriteBaseの初期化は、Initialize → CreateGraphicsPipelineState → CreateRootSignatureの順に呼び出し、RootSignatureの完成後にPSOを生成します。描画時はDirectXBase::PreDraw → SRVInformationManager::PreDraw → 3D/Particle描画 → SpriteBase::SetCommonRenderState → 各Sprite::Drawの順です。DirectXBaseは非所有ポインタで参照し、GetDirectXBaseから取得できます。

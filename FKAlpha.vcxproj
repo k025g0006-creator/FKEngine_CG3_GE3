@@ -161,7 +161,9 @@
     </ClCompile>
     <ClCompile Include="Source\App\DemoSceneImGui.cpp" />
     <ClCompile Include="Source\App\DemoSceneSmoke.cpp" />
-    <ClCompile Include="Source\App\main.cpp">
+    <ClInclude Include="Source\App\Game.h" />
+    <ClCompile Include="Source\App\main.cpp" />
+    <ClCompile Include="Source\App\Game.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
     </ClCompile>
@@ -170,6 +172,7 @@
     <ClCompile Include="Source\Engine\Core\StringUtility.cpp" />
     <ClCompile Include="Source\Engine\Audio\Sound.cpp" />
     <ClCompile Include="Source\Engine\Core\WinApp.cpp" />
+    <ClCompile Include="Source\Engine\Core\FPFramework.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\Shaders\Object3d.PS.hlsl">
@@ -219,6 +222,7 @@
     <ClInclude Include="Source\Engine\Audio\Sound.h" />
     <ClInclude Include="Source\Engine\Core\StringUtility.h" />
     <ClInclude Include="Source\Engine\Core\WinApp.h" />
+    <ClInclude Include="Source\Engine\Core\FPFramework.h" />
   </ItemGroup>
   <ItemGroup>
   </ItemGroup>

@@ -169,7 +169,7 @@ void DemoScene::CheckSprites(std::ostream& logStream)
 {
     const uint32_t index = textureManager_->GetTextureIndexByFilePath(spriteTextures[0]);
     Sprite indexedProbe;
-    indexedProbe.Initialize(&spriteBase_, index);
+    indexedProbe.Initialize(spriteBase_, index);
     const auto desc = textureManager_->GetTextureBuffer(index)->GetDesc();
     if (indexedProbe.GetSize().x != float(desc.Width) || indexedProbe.GetSize().y != float(desc.Height)) {
         Logger::Log(logStream, "Texture-index initialization did not apply the GPU image size.");
@@ -222,13 +222,13 @@ void DemoScene::CheckSprites(std::ostream& logStream)
             std::abs(actual.y - expectedV) < 0.00001f;
     }
     // 共通射影の変更は、Sprite自身に変更がなくてもWVPを再計算する。
-    spriteBase_.SetScreenSize(float(WinApp::kClientWidth) * 2.0f, float(WinApp::kClientHeight));
+    spriteBase_->SetScreenSize(float(WinApp::kClientWidth) * 2.0f, float(WinApp::kClientHeight));
     optimizationOK = optimizationOK && indexedProbe.IsDirty();
     indexedProbe.Update();
-    const uint64_t revision = spriteBase_.GetProjectionRevision();
-    spriteBase_.SetScreenSize(float(WinApp::kClientWidth) * 2.0f, float(WinApp::kClientHeight));
-    optimizationOK = optimizationOK && !indexedProbe.IsDirty() && spriteBase_.GetProjectionRevision() == revision;
-    spriteBase_.SetScreenSize(float(WinApp::kClientWidth), float(WinApp::kClientHeight));
+    const uint64_t revision = spriteBase_->GetProjectionRevision();
+    spriteBase_->SetScreenSize(float(WinApp::kClientWidth) * 2.0f, float(WinApp::kClientHeight));
+    optimizationOK = optimizationOK && !indexedProbe.IsDirty() && spriteBase_->GetProjectionRevision() == revision;
+    spriteBase_->SetScreenSize(float(WinApp::kClientWidth), float(WinApp::kClientHeight));
     indexedProbe.Update();
     if (!optimizationOK) {
         Logger::Log(logStream, "Sprite dirty flags, UV equivalence or shared projection regression failed.");
@@ -236,7 +236,7 @@ void DemoScene::CheckSprites(std::ostream& logStream)
     }
     Logger::Log(logStream, "Sprite optimization: clean/same-value updates, UV equivalence and projection invalidation passed.");
     deferredSmokeSprite_ = std::make_unique<Sprite>();
-    deferredSmokeSprite_->Initialize(&spriteBase_);
+    deferredSmokeSprite_->Initialize(spriteBase_);
     if (deferredSmokeSprite_->HasTexture()) { std::terminate(); }
     Logger::Log(logStream, "Sprite smoke: index initialization matches GetDesc; omitted index accepted.");
 }

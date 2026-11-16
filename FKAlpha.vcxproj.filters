@@ -102,6 +102,12 @@
     <ClCompile Include="Source\App\DemoSceneSmoke.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
+    <ClInclude Include="Source\App\Game.h">
+      <Filter>Source\App</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\App\Game.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
     <ClCompile Include="Source\App\main.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
@@ -118,6 +124,9 @@
       <Filter>Source\Engine\Audio</Filter>
     </ClCompile>
     <ClCompile Include="Source\Engine\Core\WinApp.cpp">
+      <Filter>Source\Engine\Core</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Engine\Core\FPFramework.cpp">
       <Filter>Source\Engine\Core</Filter>
     </ClCompile>
     <FxCompile Include="Resources\Shaders\Object3d.PS.hlsl">
@@ -187,6 +196,9 @@
       <Filter>Source\Engine\Core</Filter>
     </ClInclude>
     <ClInclude Include="Source\Engine\Core\WinApp.h">
+      <Filter>Source\Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Core\FPFramework.h">
       <Filter>Source\Engine\Core</Filter>
     </ClInclude>
     <None Include="Resources\Shaders\Object3d.hlsli">

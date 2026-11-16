@@ -40,8 +40,10 @@ Model::ModelData MakeSphereModel()
 }
 }
 
-void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, bool smokeTest, std::ostream& log)
+void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, SpriteBase& spriteBase,
+    bool smokeTest, std::ostream& log)
 {
+    spriteBase_ = &spriteBase;
     directXBase_ = &directXBase;
     textureManager_ = TextureManager::GetInstance();
     InitializeModels();
@@ -106,7 +108,6 @@ void DemoScene::InitializeModels()
 
 void DemoScene::InitializeSprites()
 {
-    spriteBase_.Initialize(directXBase_, float(WinApp::kClientWidth), float(WinApp::kClientHeight));
     CreateSprite(spriteTextures[0], {16.0f, 16.0f}, {160.0f, 160.0f});
     CreateSprite(spriteTextures[1], {192.0f, 16.0f}, {96.0f, 96.0f});
 }
@@ -114,8 +115,8 @@ void DemoScene::InitializeSprites()
 Sprite& DemoScene::CreateSprite(const std::string& texture, const Vector2& position, const Vector2& size)
 {
     auto sprite = std::make_unique<Sprite>();
-    if (texture.empty()) { sprite->Initialize(&spriteBase_); }
-    else { sprite->Initialize(&spriteBase_, texture); }
+    if (texture.empty()) { sprite->Initialize(spriteBase_); }
+    else { sprite->Initialize(spriteBase_, texture); }
     sprite->SetPosition(position);
     sprite->SetSize(size);
     Sprite& result = *sprite;
@@ -195,6 +196,10 @@ void DemoScene::Update(float deltaTime)
         object->SetCamera(&renderCamera);
         object->Update();
     }
+    if (showSprites_) {
+        for (const auto& sprite : sprites_) { sprite->Update(); }
+        if (deferredSmokeSprite_) { deferredSmokeSprite_->Update(); }
+    }
 }
 
 void DemoScene::Draw()
@@ -209,15 +214,9 @@ void DemoScene::Draw()
     // 3DとParticleの後に、深度を使わないSprite専用パイプラインで描画する。
     if (showSprites_) {
         // Sprite全体の描画ルールを1回設定し、その後に各Spriteを描画する。
-        spriteBase_.SetCommonRenderState();
-        for (const auto& sprite : sprites_) {
-            sprite->Update();
-            sprite->Draw();
-        }
-        if (deferredSmokeSprite_) {
-            deferredSmokeSprite_->Update();
-            deferredSmokeSprite_->Draw();
-        }
+        spriteBase_->SetCommonRenderState();
+        for (const auto& sprite : sprites_) { sprite->Draw(); }
+        if (deferredSmokeSprite_) { deferredSmokeSprite_->Draw(); }
     }
 }
 

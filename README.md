@@ -11,6 +11,7 @@
 | 場所 | 内容 |
 | --- | --- |
 | `Source/App` | 起動・フレーム進行（main.cpp）とサンプルシーン（DemoScene） |
+| `Source/CG3` | CG3 評価課題1のデモ、ブラックホール Editor、Effekseer 描画 |
 | `Source/Engine/Core` | ウィンドウ、ログ、文字列処理 |
 | `Source/Engine/Graphics` | DirectX基盤と描画リソース |
 | `Source/Engine/Input` | 入力処理 |
@@ -18,8 +19,8 @@
 | `Source/Engine/Math` | ベクトル・行列 |
 | `Source/Engine/Debug` | デバッグカメラ、リソースリーク確認 |
 | `Resources` | モデル、テクスチャ、音声などの素材 |
-| `Resources/Shaders` | HLSLシェーダーと共通定義 |
-| `externals` | 使用中の外部ライブラリ（DirectXTex・ImGui） |
+| `Resources/Shaders` | HLSLシェーダーと共通定義。CG3 デモ用は `Resources/Shaders/CG3` |
+| `externals` | 使用中の外部ライブラリ（DirectXTex・ImGui・Assimp） |
 | `Config` | 共通ビルド設定、ImGuiの配置設定、スペルチェック辞書 |
 | `../FKEngine_Build` | プロジェクト外に置く実行ファイル、静的ライブラリ、中間ファイル、ログ |
 | `Archive` | 旧コピー、提出用フォルダ、旧設定の保管場所 |
@@ -27,23 +28,24 @@
 ## ビルドと実行
 
 - 共通出力先：`../FKEngine_Build/`（現在の配置では`C:\FKEngine_Build`）
-- 実行ファイル：`../FKEngine_Build/Bin/x64/<構成>/FKAlpha.exe`
-- 外部ライブラリ：`../FKEngine_Build/Lib/x64/<構成>/DirectXTex.lib`、Debugでは`ImGui.lib`も生成
+- GE3 の実行ファイル：`../FKEngine_Build/Bin/x64/<構成>/FKAlpha.exe`
+- CG3 の実行ファイル：`../FKEngine_Build/Bin/x64/<構成>/CG3/CG3.exe`
+- 外部ライブラリ：`../FKEngine_Build/Lib/x64/<構成>/DirectXTex.lib`、Debug・Releaseでは`ImGui.lib`も生成
 - 中間ファイル：`../FKEngine_Build/Obj/x64/<構成>/<プロジェクト>/`
 - DirectXTexの生成シェーダー：`../FKEngine_Build/Generated/DirectXTex/x64/<構成>/`
 - 実行時ログ・クラッシュダンプ：実行ファイルの隣の`Logs/`・`Dumps/`
 
 出力先は`Config/BuildSettings.props`の`FKEngineOutputRoot`で一括設定しています。プロジェクトをコピー・提出する際は、隣の`FKEngine_Build`を含める必要はありません。整理前の生成物と過去のログも同フォルダへ引き継いでいます。
 
-Visual Studioでの作業ディレクトリはプロジェクトのルートです。ビルド後には、必要な素材・シェーダー・DXCのDLLが実行ファイルの隣にもコピーされます。実行時のImGui設定は実行ファイル側の`Config/imgui.ini`へ保存します。実行フォルダを別の場所へ渡すときは、`Resources`と`Config`、DLLを含めてコピーしてください。
+Visual Studioでの作業ディレクトリは、`FKAlpha` がプロジェクトのルート、`CG3` が `CG3.exe` のある出力フォルダです。ビルド後には、必要な素材・シェーダー・DXCのDLLが各実行ファイルの隣にコピーされます。実行フォルダを別の場所へ渡すときは、実行ファイルに付属する `Resources`、設定、DLL も一緒にコピーしてください。
 
-DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドします。アプリケーションはプロジェクト参照でリンクし、DirectXTex用の旧NuGetパッケージは使用しません。ImGui 1.93.0はアプリケーションのDebug構成で有効になります。
+DirectXTexとImGuiはソリューション内の静的ライブラリプロジェクトとしてビルドし、プロジェクト参照でリンクします。ImGui 1.93.0 は `FKAlpha` の Debug、`CG3` の Debug と Release で有効です。
 
 新しいC++ファイルは担当する`Source`配下に置いてプロジェクトへ登録し、ソリューションエクスプローラーでも同じフォルダのフィルターへ追加してください。
 
 ## GE3・CG3とmainの使い分け
 
-mainを動作確認済みの共通版として使います。GE3のクラス化・入力処理・フォルダ整理と、CG3のパーティクル・地面・各種ライトを共存させています。日本語のImGuiでライトや減衰を調整できます。
+`main` を共通の作業基点とします。`FKAlpha.slnx` を開き、ソリューション エクスプローラーで起動したいプロジェクトをスタートアップ プロジェクトに設定します。`FKAlpha` は GE3 のクラス化されたエンジンとサンプルシーンです。`CG3` は glTF モデルとブラックホール演出を含む評価課題1のデモです。
 
 1. 作業前にmainを最新にし、新しい作業はmainから分けたブランチで進めます。
 2. 既存のGE3・CG3で続きを作る場合は、最初にmainをその作業ブランチへマージします。これにより整理後のファイル配置とクラス経由の呼び出しを引き継げます。

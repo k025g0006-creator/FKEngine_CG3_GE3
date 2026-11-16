@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="ソース ファイル">
+      <UniqueIdentifier>{4fc737f1-c7a5-4376-a066-2a32d752a2ff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ヘッダー ファイル">
+      <UniqueIdentifier>{93995380-89bd-4b04-88eb-625fbe52ebfb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="シェーダー">
+      <UniqueIdentifier>{14c5aff8-6e79-4924-942d-594eb6b383ef}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="リソース ファイル">
+      <UniqueIdentifier>{67da6ab6-f800-4c08-8b7a-83bb121aad01}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Source\CG3\main.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\BlackHoleEffect.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\DebugCamera.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\EffekseerSceneEffect.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\Matrix4x4.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\ResourceObject.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\Sound.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\WinApp.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Source\CG3\BlackHoleEffect.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\DebugCamera.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\EffekseerSceneEffect.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\Matrix4x4.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\ResourceObject.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\Sound.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+    <ClInclude Include="Source\CG3\WinApp.h"><Filter>ヘッダー ファイル</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\Shaders\CG3\BlackHole.PS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\BlackHole.VS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Object3d.hlsli"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Object3d.PS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Object3d.VS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Particle.hlsli"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Particle.PS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\Shaders\CG3\Particle.VS.hlsl"><Filter>シェーダー</Filter></None>
+    <None Include="Resources\CG3\blackhole.txt"><Filter>リソース ファイル</Filter></None>
+    <None Include="Resources\Effekseer\CosmicMist\CosmicMist.efkefc"><Filter>リソース ファイル</Filter></None>
+    <None Include="Resources\plane.bin"><Filter>リソース ファイル</Filter></None>
+    <None Include="Resources\plane.gltf"><Filter>リソース ファイル</Filter></None>
+    <Text Include="externals\assimp\LICENSE.txt" />
+  </ItemGroup>
+</Project>

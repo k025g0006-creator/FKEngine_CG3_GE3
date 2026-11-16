@@ -15,6 +15,14 @@
     {
       "path": "Archive/Submission_LE2C_22/FKEngine/imgui-1.89.4/examples/libs/glfw/lib-vc2010-64/glfw3.lib",
       "reason": "提出時のImGuiサンプルに同梱された外部ライブラリを保管。"
+    },
+    {
+      "path": "externals/assimp/lib/Debug/assimp-vc143-mdd.lib",
+      "reason": "CG3 の Debug ビルドが glTF と OBJ の読み込みに使用する Assimp 静的ライブラリ。"
+    },
+    {
+      "path": "externals/assimp/lib/Release/assimp-vc143-md.lib",
+      "reason": "CG3 の Development と Release ビルドが glTF と OBJ の読み込みに使用する Assimp 静的ライブラリ。"
     }
   ]
 }

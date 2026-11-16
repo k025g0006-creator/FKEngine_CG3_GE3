@@ -18,7 +18,7 @@ void DemoScene::DrawSettings()
     ImGui::Begin("設定");
     ImGui::ColorEdit4("色", colorArray_);
     ImGui::Combo("オブジェクトの合成方法", &currentBlendMode_, kBlendModeNames, IM_ARRAYSIZE(kBlendModeNames));
-    ImGui::Combo("パーティクルの合成方法", &currentParticleBlendMode_, kBlendModeNames, IM_ARRAYSIZE(kBlendModeNames));
+    ImGui::Combo("パーティクルの合成方法", &particleSystem_.GetSettings().blendMode, kBlendModeNames, IM_ARRAYSIZE(kBlendModeNames));
     ImGui::Checkbox("モンスターボール用テクスチャ", &useMonsterBall_);
     DrawParticleSettings();
     DrawModelSettings();
@@ -37,26 +37,29 @@ void DemoScene::DrawSettings()
 
 void DemoScene::DrawParticleSettings()
 {
-    ImGui::Checkbox("ビルボード表示", &useBillboard_);
-    ImGui::Checkbox("更新する", &updateParticles_);
-    // Emitterの設定
-    ImGui::DragFloat3("発生位置", &emitter_.position.x, 0.05f, -100.0f, 100.0f);
-    int emitCount = int(emitter_.count);
-    if (ImGui::DragInt("発生数", &emitCount, 0.1f, 0, 20))
-    {
-        emitter_.count = uint32_t(emitCount);
+    auto& settings = particleSystem_.GetSettings();
+    ImGui::SeparatorText("パーティクル");
+    ImGui::Checkbox("ビルボード表示", &settings.useBillboard);
+    ImGui::Checkbox("更新する", &settings.updateParticles);
+    const char* groupNames[] = {"円 (circle.png)", "Plane のテクスチャ"};
+    ImGui::Combo("パーティクルグループ", &selectedParticleGroup_, groupNames, IM_ARRAYSIZE(groupNames));
+    const auto groupIndex = static_cast<std::size_t>(selectedParticleGroup_);
+    auto& group = particleSystem_.GetGroupSettings(groupIndex);
+    ImGui::Image(particleSystem_.GetTextureHandle(groupIndex).ptr, ImVec2(64.0f, 64.0f));
+    ImGui::DragFloat3("発生位置", &group.position.x, 0.05f, -100.0f, 100.0f);
+    ImGui::DragInt("発生数", &group.emissionCount, 1.0f, 0, static_cast<int>(ParticleSystem::kMaxParticlesPerGroup),
+        "%d", ImGuiSliderFlags_AlwaysClamp);
+    ImGui::Checkbox("自動発生", &group.autoEmit);
+    if (group.autoEmit) {
+        ImGui::DragFloat("発生間隔", &group.emissionInterval, 0.01f, 0.05f, 5.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
     }
-    ImGui::DragFloat("発生間隔", &emitter_.frequency, 0.01f, 0.05f, 5.0f);
-    // ボタンを押したらEmitterの設定どおりにParticleが追加される
-    if (ImGui::Button("パーティクルを追加"))
-    {
-        EmitParticles();
-    }
+    if (ImGui::Button("パーティクルを追加")) { particleSystem_.Emit(groupIndex); }
+    ImGui::Text("表示中: %u / %u", particleSystem_.GetInstanceCount(groupIndex), ParticleSystem::kMaxParticlesPerGroup);
     ImGui::Text("加速度フィールド");
-    ImGui::Checkbox("加速度フィールドを使う", &useAccelerationField_);
-    ImGui::DragFloat3("加速度", &accelerationField_.acceleration.x, 0.1f);
-    ImGui::DragFloat3("影響範囲 最小", &accelerationField_.area.min.x, 0.05f);
-    ImGui::DragFloat3("影響範囲 最大", &accelerationField_.area.max.x, 0.05f);
+    ImGui::Checkbox("加速度フィールドを使う", &settings.useAccelerationField);
+    ImGui::DragFloat3("加速度", &settings.acceleration.x, 0.1f);
+    ImGui::DragFloat3("影響範囲 最小", &settings.accelerationArea.min.x, 0.05f);
+    ImGui::DragFloat3("影響範囲 最大", &settings.accelerationArea.max.x, 0.05f);
     ImGui::Checkbox("パーティクルのインスタンシング", &useInstancing_);
 }
 

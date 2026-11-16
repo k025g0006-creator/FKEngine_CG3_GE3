@@ -5,13 +5,12 @@
 #include "MaltiCamera.h"
 #include "Model.h"
 #include "Object3DBase.h"
+#include "ParticleSystem.h"
 #include "Sprite.h"
 #include "SpriteBase.h"
 #include <array>
 #include <iosfwd>
-#include <list>
 #include <memory>
-#include <random>
 #include <vector>
 
 class DirectXBase;
@@ -42,11 +41,6 @@ private:
     void CheckModels(std::ostream& log);
     void CheckTextures(std::ostream& log);
     void CheckSprites(std::ostream& log);
-    void InitializeParticlePipeline(std::ostream& log);
-    void InitializeParticleBuffers();
-    void EmitParticles();
-    void UpdateParticles(const ViewCamera& camera);
-    void DrawParticles();
 #ifdef USE_IMGUI
     void DrawParticleSettings();
     void DrawModelSettings();
@@ -56,7 +50,6 @@ private:
 #endif
 
     DirectXBase* directXBase_ = nullptr;
-    SRVInformationManager* srvManager_ = nullptr;
     TextureManager* textureManager_ = nullptr;
     ModelManager* modelManager_ = nullptr;
     Model* planeModel_ = nullptr;
@@ -89,45 +82,10 @@ private:
     int spriteCreateCount_ = 1;
 #endif
 
-    // ParticleのインスタンスデータはParticle.VS.hlslと同じ配置にする。
-    struct ParticleForGPU { Matrix4x4 WVP; Matrix4x4 World; Vector4 color; };
-    struct Particle
-    {
-        FKEngine::Transform transform;
-        Vector3 velocity;
-        Vector4 color;
-        float lifeTime;
-        float currentTime = 0.0f;
-    };
-    struct Emitter
-    {
-        Vector3 position{};
-        uint32_t count = 3;
-        float frequency = 0.5f;
-        float frequencyTime = 0.0f;
-    };
-    struct AccelerationField
-    {
-        Vector3 acceleration{15.0f, 0.0f, 0.0f};
-        AABB area{{-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
-    };
-    static constexpr uint32_t kNumMaxInstance = 100;
-    Emitter emitter_;
-    AccelerationField accelerationField_;
-    std::list<Particle> particles_;
-    std::mt19937 randomEngine_{std::random_device{}()};
-    bool useAccelerationField_ = true;
+    enum ParticleGroup : std::size_t { kCircleParticles, kPlaneParticles };
+    ParticleSystem particleSystem_;
+#ifdef USE_IMGUI
+    int selectedParticleGroup_ = kCircleParticles;
+#endif
     bool useInstancing_ = true;
-    bool useBillboard_ = true;
-    bool updateParticles_ = true;
-    int currentParticleBlendMode_ = kBlendModeAdd;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> particleRootSignature_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12PipelineState>, kCountOfBlendMode> particlePipelineStates_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> instancingResource_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> materialResource_;
-    ParticleForGPU* instancingData_ = nullptr;
-    Model::Material* particleMaterialData_ = nullptr;
-    uint32_t instancingSrvIndex_ = 0;
-    uint32_t particleTextureSrvIndex_ = 0;
-    uint32_t numInstance_ = 0;
 };

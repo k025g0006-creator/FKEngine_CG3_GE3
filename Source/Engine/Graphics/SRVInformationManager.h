@@ -28,7 +28,7 @@ public:
     D3D12_GPU_DESCRIPTOR_HANDLE GetGPUDescriptorHandle(UINT index) const;
     void CreateSRVForTexture2D(UINT index, ID3D12Resource* resource, DXGI_FORMAT format, UINT mipLevels) const;
     void CreateSRVForStructuredBuffer(UINT index, ID3D12Resource* resource, UINT elementCount, UINT elementStride) const;
-    // フレームごとに共通ヒープを設定する。
+    // 現在の描画パスに共通ヒープを設定する。
     void PreDraw() const;
     void SetGraphicsRootDescriptorTable(UINT rootParameterIndex, UINT index) const;
 

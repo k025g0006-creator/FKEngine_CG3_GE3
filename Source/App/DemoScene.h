@@ -25,7 +25,7 @@ class DemoScene
 public:
     void Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, bool smokeTest, std::ostream& log);
     void UpdateCameraInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown);
-    void Update();
+    void Update(float deltaTime);
     void Draw();
     void Finalize();
     void PrepareSmokeFrame(uint32_t frame, std::ostream& log);
@@ -41,6 +41,7 @@ private:
     void CheckModels(std::ostream& log);
     void CheckTextures(std::ostream& log);
     void CheckSprites(std::ostream& log);
+    void CheckDebugCamera(std::ostream& log);
 #ifdef USE_IMGUI
     void DrawParticleSettings();
     void DrawModelSettings();
@@ -88,4 +89,5 @@ private:
     int selectedParticleGroup_ = kCircleParticles;
 #endif
     bool useInstancing_ = true;
+    uint32_t retiredTextureSrvForSmoke_ = UINT32_MAX;
 };

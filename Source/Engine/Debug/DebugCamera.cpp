@@ -1,6 +1,27 @@
 #include "DebugCamera.h"
 #include "Input.h"
 
+namespace
+{
+void OrthonormalizeRotation(Matrix4x4& rotation)
+{
+    const auto right = Vector3::Normalize({ rotation.m[0][0], rotation.m[0][1], rotation.m[0][2] });
+    const Vector3 upRow{ rotation.m[1][0], rotation.m[1][1], rotation.m[1][2] };
+    const auto up = Vector3::Normalize(Vector3::Subtract(upRow, Vector3::Multiply(Vector3::Dot(upRow, right), right)));
+    const Vector3 forward{
+        right.y * up.z - right.z * up.y,
+        right.z * up.x - right.x * up.z,
+        right.x * up.y - right.y * up.x
+    };
+    rotation = {{
+        {right.x, right.y, right.z, 0.0f},
+        {up.x, up.y, up.z, 0.0f},
+        {forward.x, forward.y, forward.z, 0.0f},
+        {0.0f, 0.0f, 0.0f, 1.0f}
+    }};
+}
+}
+
 void DebugCamera::Initialize(uint32_t clientWidth, uint32_t clientHeight)
 {
 	// カメラの初期姿勢
@@ -67,18 +88,14 @@ void DebugCamera::Update(const Input* input, long mouseX, long mouseY, bool isLe
 	}
 
 
-	// 回転行列の累積
-	// 今回フレームでの追加回転分の回転行列を計算する。
-	// 累積回転行列に乗算して合成する。
-
-	// 追加回転分の回転行列を生成
-	Matrix4x4 matRotDelta = Math::MakeIdentity4x4();
-	matRotDelta *= Math::MakeRotateXMatrix(rotDeltaX);
-	matRotDelta *= Math::MakeRotateYMatrix(rotDeltaY);
-	matRotDelta *= Math::MakeRotateZMatrix(rotDeltaZ);
-
-	// 累積の回転行列を合成
-	matRot_ = matRotDelta * matRot_;
+	if (rotDeltaX != 0.0f || rotDeltaY != 0.0f || rotDeltaZ != 0.0f)
+	{
+		const auto delta = Math::MakeRotateXMatrix(rotDeltaX) * Math::MakeRotateYMatrix(rotDeltaY) *
+			Math::MakeRotateZMatrix(rotDeltaZ);
+		matRot_ = delta * matRot_;
+		// 累積乗算で蓄積する丸め誤差を補正する。
+		OrthonormalizeRotation(matRot_);
+	}
 
 
 	// ---- 前後移動 ----

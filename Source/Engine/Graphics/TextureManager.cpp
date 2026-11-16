@@ -17,6 +17,13 @@ TextureManager* TextureManager::GetInstance()
 
 void TextureManager::Finalize()
 {
+    if (instance_ && instance_->srvManager_) {
+        auto& manager = *instance_;
+        manager.ReleaseCompletedResources();
+        for (const auto& entry : manager.textureDatas_) {
+            manager.srvManager_->Free(manager.srvManager_->GetCPUDescriptorHandle(entry.second.srvIndex));
+        }
+    }
     delete instance_;
     instance_ = nullptr;
 }
@@ -28,6 +35,7 @@ void TextureManager::Initialize(SRVInformationManager& srvManager)
     }
     textureDatas_.reserve(SRVInformationManager::kMaxSRVCount);
     textureIndices_.reserve(SRVInformationManager::kMaxSRVCount);
+    retiredTextures_.reserve(SRVInformationManager::kMaxSRVCount);
     directXBase_ = srvManager.GetDirectXBase();
     srvManager_ = &srvManager;
 }
@@ -50,6 +58,7 @@ void TextureManager::LoadTexture(const std::string& filePath)
     if (!directXBase_) { throw std::logic_error("Initialize TextureManager before loading textures."); }
     const auto key = MakePathKey(filePath);
     if (textureIndices_.contains(key)) { return; }
+    if (nextTextureIndex_ == UINT32_MAX) { throw std::overflow_error("Texture indices exhausted."); }
     if (!srvManager_->CanAllocate()) {
         throw std::runtime_error("Shared SRV heap capacity exceeded.");
     }
@@ -68,28 +77,45 @@ void TextureManager::LoadTexture(const std::string& filePath)
 
     TextureData data;
     data.filePath = filePath;
+    data.pathKey = key;
     data.metadata = mipImages.GetMetadata();
     data.resource = directXBase_->CreateTextureResource(data.metadata);
     if (!data.resource) { throw std::runtime_error("Failed to create texture resource: " + filePath); }
 
     // コマンドを積んだだけでは転送は終わらない。完了通知までUploadHeapも所有する。
     // ハッシュ表の割り当てを、GPUへコマンドを積む前に済ませる。
-    const auto inserted = textureIndices_.emplace(key, static_cast<uint32_t>(textureDatas_.size()));
+    const auto textureIndex = nextTextureIndex_;
+    const auto inserted = textureIndices_.emplace(key, textureIndex);
     if (!inserted.second) { return; }
-    const size_t previousSize = textureDatas_.size();
+    auto registered = textureDatas_.end();
     try {
-        textureDatas_.push_back(std::move(data)); // 最大枚数をreserve済み。
-        auto& registered = textureDatas_.back();
-        registered.uploadResource = directXBase_->UploadTextureData(registered.resource, mipImages);
-        // 空きは先に確認済み。転送準備が失敗した場合はSRV枠を消費しない。
-        registered.srvIndex = srvManager_->Allocate();
-        srvManager_->CreateSRVForTexture2D(registered.srvIndex, registered.resource.Get(), registered.metadata.format,
-            static_cast<UINT>(registered.metadata.mipLevels));
+        registered = textureDatas_.emplace(textureIndex, std::move(data)).first;
+        auto& texture = registered->second;
+        texture.srvIndex = srvManager_->Allocate();
+        srvManager_->CreateSRVForTexture2D(texture.srvIndex, texture.resource.Get(), texture.metadata.format,
+            static_cast<UINT>(texture.metadata.mipLevels));
+        texture.uploadResource = directXBase_->UploadTextureData(texture.resource, mipImages);
+        ++nextTextureIndex_;
     } catch (...) {
-        if (textureDatas_.size() != previousSize) { textureDatas_.pop_back(); }
+        if (registered != textureDatas_.end()) {
+            const auto srvIndex = registered->second.srvIndex;
+            if (srvIndex != UINT32_MAX) { srvManager_->Free(srvManager_->GetCPUDescriptorHandle(srvIndex)); }
+            textureDatas_.erase(registered);
+        }
         textureIndices_.erase(inserted.first);
         throw;
     }
+}
+
+bool TextureManager::UnloadTexture(uint32_t textureIndex)
+{
+    const auto found = textureDatas_.find(textureIndex);
+    if (found == textureDatas_.end()) { return false; }
+
+    auto& retired = retiredTextures_.emplace_back(std::move(found->second));
+    textureIndices_.erase(retired.pathKey);
+    textureDatas_.erase(found);
+    return true;
 }
 
 const TextureManager::TextureData& TextureManager::FindTexture(const std::string& filePath) const
@@ -158,11 +184,18 @@ const std::string& TextureManager::GetTextureFilePath(uint32_t textureIndex) con
 
 size_t TextureManager::GetPendingUploadCount() const
 {
-    return static_cast<size_t>(std::count_if(textureDatas_.begin(), textureDatas_.end(),
-        [](const TextureData& texture) { return texture.uploadResource != nullptr; }));
+    const auto active = std::ranges::count_if(textureDatas_,
+        [](const auto& entry) { return entry.second.uploadResource != nullptr; });
+    const auto retired = std::ranges::count_if(retiredTextures_,
+        [](const TextureData& texture) { return texture.uploadResource != nullptr; });
+    return static_cast<size_t>(active + retired);
 }
 
-void TextureManager::ReleaseUploadResources()
+void TextureManager::ReleaseCompletedResources()
 {
-    for (auto& texture : textureDatas_) { texture.uploadResource.Reset(); }
+    for (auto& entry : textureDatas_) { entry.second.uploadResource.Reset(); }
+    for (const auto& texture : retiredTextures_) {
+        srvManager_->Free(srvManager_->GetCPUDescriptorHandle(texture.srvIndex));
+    }
+    retiredTextures_.clear();
 }

@@ -29,6 +29,7 @@ public:
 private:
     ImGuiContext* context_ = nullptr;
     DirectXBase* directXBase_ = nullptr; // 非所有
+    SRVInformationManager* srvManager_ = nullptr; // 非所有
     std::string iniFilename_; // ImGuiIOが参照する文字列を終了まで保持する。
     bool win32Initialized_ = false;
     bool dx12Initialized_ = false;

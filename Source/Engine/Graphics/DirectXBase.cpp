@@ -4,6 +4,7 @@
 #include <chrono>
 #include <format>
 #include <filesystem>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -102,11 +103,16 @@ ComPtr<ID3D12Resource> DirectXBase::UploadTextureData(
 	const ComPtr<ID3D12Resource>& texture, const DirectX::ScratchImage& mipImages)
 {
 	std::vector<D3D12_SUBRESOURCE_DATA> subresources;
-	DirectX::PrepareUpload(device_.Get(), mipImages.GetImages(), mipImages.GetImageCount(), mipImages.GetMetadata(), subresources);
+	if (FAILED(DirectX::PrepareUpload(device_.Get(), mipImages.GetImages(), mipImages.GetImageCount(),
+		mipImages.GetMetadata(), subresources)) || subresources.empty()) {
+		throw std::runtime_error("Failed to prepare texture upload.");
+	}
 	const uint64_t intermediateSize = GetRequiredIntermediateSize(texture.Get(), 0, static_cast<UINT>(subresources.size()));
 	ComPtr<ID3D12Resource> intermediateResource = CreateBufferResource(static_cast<size_t>(intermediateSize));
-	UpdateSubresources(commandList_.Get(), texture.Get(), intermediateResource.Get(), 0, 0,
-		static_cast<UINT>(subresources.size()), subresources.data());
+	if (!intermediateResource || UpdateSubresources(commandList_.Get(), texture.Get(), intermediateResource.Get(),
+		0, 0, static_cast<UINT>(subresources.size()), subresources.data()) == 0) {
+		throw std::runtime_error("Failed to record texture upload.");
+	}
 
 	D3D12_RESOURCE_BARRIER barrier{};
 	barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
@@ -354,13 +360,15 @@ void DirectXBase::PostDraw()
 
 	++fenceValue_;
 	hr = commandQueue_->Signal(fence_.Get(), fenceValue_);
-	assert(SUCCEEDED(hr));
+	if (FAILED(hr)) { throw std::runtime_error("Failed to signal the frame fence."); }
 	if (fence_->GetCompletedValue() < fenceValue_)
 	{
 		hr = fence_->SetEventOnCompletion(fenceValue_, fenceEvent_);
-		assert(SUCCEEDED(hr));
-		WaitForSingleObject(fenceEvent_, INFINITE);
+		if (FAILED(hr) || WaitForSingleObject(fenceEvent_, INFINITE) != WAIT_OBJECT_0) {
+			throw std::runtime_error("Failed to wait for the frame fence.");
+		}
 	}
+	if (fence_->GetCompletedValue() == UINT64_MAX) { throw std::runtime_error("DirectX device was removed."); }
 
 	hr = commandAllocator_->Reset();
 	assert(SUCCEEDED(hr));

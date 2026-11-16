@@ -1,138 +1,212 @@
 #include "Sound.h"
 
-#include <fstream>
-#include <cassert>
+#include <mfapi.h>
+#include <mferror.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#include <wrl.h>
 #include <cstring>
+#include <new>
+#include <utility>
 
-Sound::~Sound()
+namespace
 {
-	Unload();
+using Microsoft::WRL::ComPtr;
+using WaveFormat = std::unique_ptr<WAVEFORMATEX, decltype(&CoTaskMemFree)>;
+constexpr auto kAllStreams = static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS);
+constexpr auto kFirstAudioStream = static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+
+HRESULT ConfigureAudioStream(IMFSourceReader& reader)
+{
+    HRESULT result = reader.SetStreamSelection(kAllStreams, FALSE);
+    if (FAILED(result)) { return result; }
+    result = reader.SetStreamSelection(kFirstAudioStream, TRUE);
+    if (FAILED(result)) { return result; }
+
+    ComPtr<IMFMediaType> nativeType;
+    result = reader.GetNativeMediaType(kFirstAudioStream, 0, &nativeType);
+    if (FAILED(result)) { return result; }
+    GUID subtype{};
+    result = nativeType->GetGUID(MF_MT_SUBTYPE, &subtype);
+    if (FAILED(result)) { return result; }
+
+    if (subtype == MFAudioFormat_PCM || subtype == MFAudioFormat_Float)
+    {
+        return reader.SetCurrentMediaType(kFirstAudioStream, nullptr, nativeType.Get());
+    }
+
+    ComPtr<IMFMediaType> decodedType;
+    result = MFCreateMediaType(&decodedType);
+    if (FAILED(result)) { return result; }
+    result = decodedType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+    if (FAILED(result)) { return result; }
+
+    // 圧縮音声はデコーダーが対応する場合に32-bit floatで受け取る。
+    for (const auto& outputSubtype : {MFAudioFormat_Float, MFAudioFormat_PCM})
+    {
+        result = decodedType->SetGUID(MF_MT_SUBTYPE, outputSubtype);
+        if (FAILED(result)) { return result; }
+        result = reader.SetCurrentMediaType(kFirstAudioStream, nullptr, decodedType.Get());
+        if (SUCCEEDED(result)) { return result; }
+    }
+    return result;
 }
 
-void Sound::Load(const std::string& filename)
+HRESULT ReadWaveFormat(IMFSourceReader& reader, WaveFormat& format)
 {
-	// 二重ロード対策
-	if (pBuffer_)
-	{
-		Unload();
-	}
+    ComPtr<IMFMediaType> mediaType;
+    HRESULT result = reader.GetCurrentMediaType(kFirstAudioStream, &mediaType);
+    if (FAILED(result)) { return result; }
 
-	// ファイル入力ストリームのインスタンス
-	std::ifstream file;
-
-	// .wavファイルをバイナリモードで開く
-	file.open(filename, std::ios_base::binary);
-
-	// ファイルオープン失敗を抽出する
-	assert(file.is_open());
-
-	// RIFFヘッダーの読み込み
-	RiffHeader riff;
-	file.read((char*)&riff, sizeof(riff));
-
-	// ファイルがRIFFかチェック
-	if (strncmp(riff.chunk.id, "RIFF", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// タイプがWAVEかチェック
-	if (strncmp(riff.type, "WAVE", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// formatチャンクの読み込み
-	FormatChunk format = {};
-
-	// チャンクヘッダーの確認
-	file.read((char*)&format, sizeof(ChunkHeader));
-	if (strncmp(format.chunk.id, "fmt ", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// チャンク本体の読み込み
-	assert(format.chunk.size <= sizeof(format.fmt));
-	file.read((char*)&format.fmt, format.chunk.size);
-
-	// Dataチャンクの読み込み
-	ChunkHeader data;
-	file.read((char*)&data, sizeof(data));
-
-	// JUNKチャンクを検出した場合
-	if (strncmp(data.id, "JUNK", 4) == 0)
-	{
-		// 読み取り位置をJUNKチャンクの終わりまで進める
-		file.seekg(data.size, std::ios_base::cur);
-
-		// 再読み込み
-		file.read((char*)&data, sizeof(data));
-	}
-
-	if (strncmp(data.id, "data", 4) != 0)
-	{
-		assert(0);
-	}
-
-	// Dataチャンクのデータ部（波形データ）の読み込み
-	char* pBuffer = new char[data.size];
-	file.read(pBuffer, data.size);
-
-	// waveファイルを閉じる
-	file.close();
-
-	// メンバへ格納
-	wfex_ = format.fmt;
-	pBuffer_ = reinterpret_cast<BYTE*>(pBuffer);
-	bufferSize_ = data.size;
+    WAVEFORMATEX* wave = nullptr;
+    UINT32 formatSize = 0;
+    result = MFCreateWaveFormatExFromMFMediaType(mediaType.Get(), &wave, &formatSize, MFWaveFormatExConvertFlag_Normal);
+    if (FAILED(result)) { return result; }
+    format.reset(wave);
+    if (formatSize < sizeof(WAVEFORMATEX) || wave->nBlockAlign == 0 ||
+        formatSize - sizeof(WAVEFORMATEX) < wave->cbSize)
+    {
+        return MF_E_INVALIDMEDIATYPE;
+    }
+    return S_OK;
 }
 
-void Sound::Play(IXAudio2* xAudio2, bool loop)
+HRESULT AppendSample(IMFSample& sample, std::vector<BYTE>& pcm)
 {
-	assert(pBuffer_ && "Sound::Load() を呼び出してから再生してください");
+    ComPtr<IMFMediaBuffer> buffer;
+    HRESULT result = sample.ConvertToContiguousBuffer(&buffer);
+    if (FAILED(result)) { return result; }
+    DWORD length = 0;
+    result = buffer->GetCurrentLength(&length);
+    if (FAILED(result) || length == 0) { return result; }
+    const auto offset = pcm.size();
+    if (length > XAUDIO2_MAX_BUFFER_BYTES - offset) { return HRESULT_FROM_WIN32(ERROR_FILE_TOO_LARGE); }
+    try
+    {
+        pcm.resize(offset + length);
+    } catch (const std::bad_alloc&)
+    {
+        return E_OUTOFMEMORY;
+    }
 
-	HRESULT result;
+    BYTE* data = nullptr;
+    result = buffer->Lock(&data, nullptr, nullptr);
+    if (FAILED(result)) { return result; }
+    std::memcpy(pcm.data() + offset, data, length);
+    return buffer->Unlock();
+}
+}
 
-	// 波形フォーマットを元にSourceVoiceを生成
-	result = xAudio2->CreateSourceVoice(&pSourceVoice_, &wfex_);
-	assert(SUCCEEDED(result));
+HRESULT Sound::Load(const std::filesystem::path& filename)
+{
+    if (filename.empty()) { return E_INVALIDARG; }
+    ComPtr<IMFSourceReader> reader;
+    HRESULT result = MFCreateSourceReaderFromURL(filename.c_str(), nullptr, &reader);
+    if (FAILED(result)) { return result; }
+    result = ConfigureAudioStream(*reader.Get());
+    if (FAILED(result)) { return result; }
 
-	// 再生する波形データの設定
-	XAUDIO2_BUFFER buf{};
-	buf.pAudioData = pBuffer_;
-	buf.AudioBytes = bufferSize_;
-	buf.Flags = XAUDIO2_END_OF_STREAM;
-	if (loop)
-	{
-		buf.LoopCount = XAUDIO2_LOOP_INFINITE;
-	}
+    WaveFormat format{nullptr, &CoTaskMemFree};
+    result = ReadWaveFormat(*reader.Get(), format);
+    if (FAILED(result)) { return result; }
 
-	// 波形データの再生
-	result = pSourceVoice_->SubmitSourceBuffer(&buf);
-	assert(SUCCEEDED(result));
-	result = pSourceVoice_->Start();
-	assert(SUCCEEDED(result));
+    std::vector<BYTE> pcm;
+    DWORD flags = 0;
+    do
+    {
+        ComPtr<IMFSample> sample;
+        result = reader->ReadSample(kFirstAudioStream, 0, nullptr, &flags, nullptr, &sample);
+        if (FAILED(result)) { return result; }
+        if (flags & MF_SOURCE_READERF_ERROR) { return E_FAIL; }
+        if (flags & MF_SOURCE_READERF_CURRENTMEDIATYPECHANGED)
+        {
+            if (!pcm.empty()) { return MF_E_INVALIDMEDIATYPE; }
+            result = ReadWaveFormat(*reader.Get(), format);
+            if (FAILED(result)) { return result; }
+        }
+        if (sample)
+        {
+            result = AppendSample(*sample.Get(), pcm);
+            if (FAILED(result)) { return result; }
+        }
+    } while (!(flags & MF_SOURCE_READERF_ENDOFSTREAM));
+
+    if (pcm.empty() || pcm.size() % format->nBlockAlign != 0) { return MF_E_INVALIDMEDIATYPE; }
+    Stop();
+    pcm_ = std::move(pcm);
+    format_ = std::move(format);
+    return S_OK;
+}
+
+HRESULT Sound::Play(IXAudio2* xAudio2, bool loop)
+{
+    const HRESULT result = loop ? PlayBgm(xAudio2) : PlaySe(xAudio2);
+    if (SUCCEEDED(result))
+    {
+        if (loop)
+        { 
+            StopSe();
+        }
+        else
+        { 
+            StopBgm();
+        }
+    }
+    return result;
+}
+
+HRESULT Sound::PlayBgm(IXAudio2* xAudio2)
+{
+    return StartPlayback(xAudio2, true, bgmVoice_);
+}
+
+HRESULT Sound::PlaySe(IXAudio2* xAudio2)
+{
+    return StartPlayback(xAudio2, false, seVoice_);
+}
+
+HRESULT Sound::StartPlayback(IXAudio2* xAudio2, bool loop, Voice& voice)
+{
+    if (!xAudio2) { return E_POINTER; }
+    if (pcm_.empty() || !format_) { return MF_E_INVALIDREQUEST; }
+
+    IXAudio2SourceVoice* createdVoice = nullptr;
+    HRESULT result = xAudio2->CreateSourceVoice(&createdVoice, format_.get());
+    if (FAILED(result)) { return result; }
+    Voice nextVoice{createdVoice};
+
+    XAUDIO2_BUFFER buffer{};
+    buffer.pAudioData = pcm_.data();
+    buffer.AudioBytes = static_cast<UINT32>(pcm_.size());
+    buffer.Flags = XAUDIO2_END_OF_STREAM;
+    buffer.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
+    result = nextVoice->SubmitSourceBuffer(&buffer);
+    if (FAILED(result)) { return result; }
+    voice.reset();
+    result = nextVoice->Start();
+    if (SUCCEEDED(result)) { voice = std::move(nextVoice); }
+    return result;
+}
+
+void Sound::StopBgm()
+{
+    bgmVoice_.reset();
+}
+
+void Sound::StopSe()
+{
+    seVoice_.reset();
 }
 
 void Sound::Stop()
 {
-	if (pSourceVoice_)
-	{
-		pSourceVoice_->Stop();
-		pSourceVoice_->DestroyVoice();
-		pSourceVoice_ = nullptr;
-	}
+    StopSe();
+    StopBgm();
 }
 
 void Sound::Unload()
 {
-	Stop();
-
-	// バッファのメモリを解放
-	delete[] pBuffer_;
-
-	pBuffer_ = nullptr;
-	bufferSize_ = 0;
-	wfex_ = {};
+    Stop();
+    pcm_ = std::vector<BYTE>{};
+    format_.reset();
 }

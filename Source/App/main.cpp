@@ -1,12 +1,18 @@
 #include <Windows.h>
 #include <dbghelp.h>
+#include <mfapi.h>
+#include <shellapi.h>
 #include <strsafe.h>
+#include <algorithm>
 #include <chrono>
 #include <exception>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <memory>
+#include <stdexcept>
 #include <string_view>
+#include <vector>
 
 #include "DemoScene.h"
 #include "D3DResourceLeakChecker.h"
@@ -19,6 +25,7 @@
 #include "WinApp.h"
 #ifdef USE_IMGUI
 #include "ImGuiManager.h"
+#include "imgui.h"
 #endif
 
 #pragma comment(lib, "d3d12.lib")
@@ -88,7 +95,60 @@ bool InitializeInput(const WinApp& window, Input& input, Microsoft::WRL::ComPtr<
         SUCCEEDED(mouse->SetCooperativeLevel(hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE));
 }
 
-int RunApplication(bool smokeTest)
+#ifdef USE_IMGUI
+std::vector<std::filesystem::path> FindSoundFiles(const std::filesystem::path& directory)
+{
+    std::vector<std::filesystem::path> files;
+    std::error_code error;
+    const std::filesystem::recursive_directory_iterator end;
+    for (std::filesystem::recursive_directory_iterator it(directory,
+        std::filesystem::directory_options::skip_permission_denied, error); !error && it != end; it.increment(error)) {
+        if (!it->is_regular_file(error)) { continue; }
+        const auto extension = it->path().extension();
+        if (_wcsicmp(extension.c_str(), L".mp3") == 0 || _wcsicmp(extension.c_str(), L".wav") == 0) {
+            files.push_back(it->path());
+        }
+    }
+    std::ranges::sort(files);
+    return files;
+}
+
+void DrawSoundControls(const char* label, Sound& sound, IXAudio2* audio,
+    const std::vector<std::filesystem::path>& files, const std::filesystem::path& directory,
+    std::filesystem::path& selected, std::filesystem::path& loaded, bool loop, std::string& status)
+{
+    ImGui::PushID(label);
+    ImGui::SeparatorText(label);
+    const auto preview = selected.filename().u8string();
+    if (ImGui::BeginCombo("音源", selected.empty() ? "音源を選択" : reinterpret_cast<const char*>(preview.c_str()))) {
+        for (const auto& path : files) {
+            const auto name = path.lexically_relative(directory).generic_u8string();
+            if (ImGui::Selectable(reinterpret_cast<const char*>(name.c_str()), path == selected)) { selected = path; }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::BeginDisabled(!audio || selected.empty());
+    if (ImGui::Button(loop ? "ループ再生" : "再生")) {
+        HRESULT result = S_OK;
+        if (selected != loaded) {
+            result = sound.Load(selected);
+            if (SUCCEEDED(result)) { loaded = selected; }
+        }
+        if (SUCCEEDED(result)) { result = loop ? sound.PlayBgm(audio) : sound.PlaySe(audio); }
+        status = SUCCEEDED(result) ? "再生しました" : std::format("再生できませんでした (0x{:08X})", static_cast<unsigned>(result));
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("停止")) {
+        sound.Stop();
+        status = "停止しました";
+    }
+    ImGui::TextUnformatted(status.c_str());
+    ImGui::PopID();
+}
+#endif
+
+int RunApplication(bool smokeTest, const std::filesystem::path& soundPath, const std::filesystem::path& bgmPath)
 {
     D3DResourceLeakChecker leakCheck;
     auto log = OpenLog();
@@ -130,16 +190,68 @@ int RunApplication(bool smokeTest)
     Microsoft::WRL::ComPtr<IXAudio2> audio;
     IXAudio2MasteringVoice* masterVoice = nullptr;
     Sound alarm;
+    Sound bgm;
     const bool audioReady = SUCCEEDED(XAudio2Create(&audio, 0, XAUDIO2_DEFAULT_PROCESSOR)) &&
         SUCCEEDED(audio->CreateMasteringVoice(&masterVoice));
-    alarm.Load("Resources/Alarm01.wav");
-    if (!smokeTest && audioReady) { alarm.Play(audio.Get()); }
+    const HRESULT loadResult = alarm.Load(soundPath);
+    if (const auto* format = alarm.GetFormat()) {
+        Logger::Log(log, std::format("Sound decoded: {} Hz, {} ch, {} bits per sample.",
+            format->nSamplesPerSec, format->nChannels, format->wBitsPerSample));
+    } else {
+        Logger::Log(log, std::format("Sound load failed (0x{:08X}).", static_cast<unsigned>(loadResult)));
+    }
+    HRESULT bgmLoadResult = S_OK;
+    if (!bgmPath.empty()) {
+        bgmLoadResult = bgm.Load(bgmPath);
+        if (FAILED(bgmLoadResult)) {
+            Logger::Log(log, std::format("BGM load failed (0x{:08X}).", static_cast<unsigned>(bgmLoadResult)));
+        } else {
+            Logger::Log(log, "BGM decoded.");
+            if (!smokeTest && audioReady) {
+                const HRESULT playResult = bgm.PlayBgm(audio.Get());
+                if (FAILED(playResult)) {
+                    Logger::Log(log, std::format("BGM playback failed (0x{:08X}).", static_cast<unsigned>(playResult)));
+                }
+            }
+        }
+    }
+    const auto playSe = [&] {
+        if (smokeTest || !audioReady || !alarm.GetFormat()) { return; }
+        const HRESULT playResult = alarm.PlaySe(audio.Get());
+        if (FAILED(playResult)) {
+            Logger::Log(log, std::format("SE playback failed (0x{:08X}).", static_cast<unsigned>(playResult)));
+        }
+    };
+    playSe();
 
     uint32_t smokeFrame = 0;
     constexpr float clearColor[] = { 0.1f, 0.25f, 0.5f, 1.0f };
+#ifdef USE_IMGUI
+    const auto soundDirectory = GetExecutableDirectory() / "Resources";
+    auto soundFiles = FindSoundFiles(soundDirectory);
+    auto selectedSe = soundPath;
+    auto selectedBgm = bgmPath;
+    auto loadedSe = SUCCEEDED(loadResult) ? soundPath : std::filesystem::path{};
+    auto loadedBgm = SUCCEEDED(bgmLoadResult) ? bgmPath : std::filesystem::path{};
+    std::string seStatus;
+    std::string bgmStatus;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> smokeHeap;
+    if (smokeTest) {
+        const D3D12_DESCRIPTOR_HEAP_DESC heapDesc{
+            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 1, D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, 0};
+        if (FAILED(directX.GetDevice()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&smokeHeap)))) {
+            throw std::runtime_error("Failed to create the smoke test descriptor heap.");
+        }
+    }
+#endif
+    auto previousFrameTime = std::chrono::steady_clock::now();
     while (!window.ProcessMessage()) {
+        const auto frameTime = std::chrono::steady_clock::now();
+        const float deltaTime = std::chrono::duration<float>(frameTime - previousFrameTime).count();
+        previousFrameTime = frameTime;
         if (smokeTest) { scene.PrepareSmokeFrame(smokeFrame, log); }
         input.Update();
+        if (input.TriggerKey(DIK_SPACE)) { playSe(); }
         mouse->Acquire();
         DIMOUSESTATE mouseState{};
         mouse->GetDeviceState(sizeof(mouseState), &mouseState);
@@ -147,17 +259,31 @@ int RunApplication(bool smokeTest)
 #ifdef USE_IMGUI
         imguiManager.BeginFrame();
         scene.DrawSettings();
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 16.0f, 16.0f),
+            ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
+        if (ImGui::Begin("サウンド", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (ImGui::Button("音源一覧を更新")) { soundFiles = FindSoundFiles(soundDirectory); }
+            auto* playback = audioReady && !smokeTest ? audio.Get() : nullptr;
+            DrawSoundControls("BGM", bgm, playback, soundFiles, soundDirectory, selectedBgm, loadedBgm, true, bgmStatus);
+            DrawSoundControls("SE", alarm, playback, soundFiles, soundDirectory, selectedSe, loadedSe, false, seStatus);
+        }
+        ImGui::End();
         imguiManager.EndFrame();
 #endif
-        scene.Update();
+        constexpr float smokeDeltaTimes[] = {1.0f / 90.0f, 1.0f / 45.0f, 1.0f / 60.0f};
+        scene.Update(smokeTest ? smokeDeltaTimes[smokeFrame] : deltaTime);
         directX.PreDraw(clearColor);
         srvManager.PreDraw();
         scene.Draw();
 #ifdef USE_IMGUI
+        if (smokeHeap && smokeFrame == 1) {
+            ID3D12DescriptorHeap* heaps[] = {smokeHeap.Get()};
+            directX.GetCommandList()->SetDescriptorHeaps(1, heaps);
+        }
         imguiManager.Draw();
 #endif
         directX.PostDraw();
-        textures.ReleaseUploadResources();
+        textures.ReleaseCompletedResources();
         if (smokeTest && textures.GetPendingUploadCount() != 0) {
             Logger::Log(log, "Texture upload resources were not released after GPU completion.");
             std::terminate();
@@ -181,20 +307,45 @@ int RunApplication(bool smokeTest)
     directInput.Reset();
     window.Finalize();
     alarm.Unload();
+    bgm.Unload();
     if (masterVoice) { masterVoice->DestroyVoice(); }
     audio.Reset();
     Logger::Log(log, "Hello, DirectX! Shutdown successful.");
-    return 0;
+    return smokeTest && (FAILED(loadResult) || FAILED(bgmLoadResult)) ? 1 : 0;
 }
 }
 
-int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR commandLine, _In_ int)
+int WINAPI WinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ LPSTR, _In_ int)
 {
+    int argumentCount = 0;
+    std::unique_ptr<LPWSTR, decltype(&LocalFree)> arguments{
+        CommandLineToArgvW(GetCommandLineW(), &argumentCount), &LocalFree};
+    if (!arguments) { return -1; }
+    bool smokeTest = false;
+    auto soundPath = GetExecutableDirectory() / "Resources/Alarm01.mp3";
+    std::filesystem::path bgmPath;
+    for (int index = 1; index < argumentCount; ++index) {
+        const std::wstring_view argument = arguments.get()[index];
+        if (argument == L"--smoke-test") { smokeTest = true; }
+        if (argument == L"--sound" || argument == L"--bgm") {
+            if (++index == argumentCount) { return 2; }
+            auto& path = argument == L"--bgm" ? bgmPath : soundPath;
+            path = arguments.get()[index];
+        }
+    }
+
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(comResult)) { return -1; }
     SetUnhandledExceptionFilter(ExportDump);
-    const bool smokeTest = std::string_view(commandLine).find("--smoke-test") != std::string_view::npos;
-    const int result = RunApplication(smokeTest);
+    const HRESULT mediaResult = MFStartup(MF_VERSION);
+    if (FAILED(mediaResult)) {
+        auto log = OpenLog();
+        Logger::Log(log, std::format("Media Foundation initialization failed (0x{:08X}).", static_cast<unsigned>(mediaResult)));
+        CoUninitialize();
+        return -1;
+    }
+    const int result = RunApplication(smokeTest, soundPath, bgmPath);
+    MFShutdown();
     CoUninitialize();
     return result;
 }

@@ -45,7 +45,10 @@ void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvM
     directXBase_ = &directXBase;
     textureManager_ = TextureManager::GetInstance();
     InitializeModels();
-    if (smokeTest) { CheckModels(log); }
+    if (smokeTest) {
+        CheckModels(log);
+        CheckDebugCamera(log);
+    }
 
     textureManager_->LoadTexture("Resources/uvChecker.png");
     textureManager_->LoadTexture("Resources/circle.png");
@@ -56,10 +59,10 @@ void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvM
     if (smokeTest) { CheckSprites(log); }
     const auto& planeTexture = planeModel_->GetModelData().material.textureFilePath;
     const std::array particleTextures{
-        textureManager_->GetSrvIndex("Resources/circle.png"),
-        textureManager_->GetSrvIndex(planeTexture.empty() ? "Resources/uvChecker.png" : planeTexture)
+        textureManager_->GetTextureIndexByFilePath("Resources/circle.png"),
+        textureManager_->GetTextureIndexByFilePath(planeTexture.empty() ? "Resources/uvChecker.png" : planeTexture)
     };
-    particleSystem_.Initialize(directXBase, srvManager, particleTextures, log);
+    particleSystem_.Initialize(directXBase, srvManager, *textureManager_, particleTextures, log);
     auto& planeGroup = particleSystem_.GetGroupSettings(kPlaneParticles);
     planeGroup.position = {3.0f, 1.0f, 0.0f};
     planeGroup.autoEmit = false;
@@ -159,13 +162,13 @@ void DemoScene::UpdateCameraInput(const Input& input, long mouseX, long mouseY, 
     }
 }
 
-void DemoScene::Update()
+void DemoScene::Update(float deltaTime)
 {
     // オブジェクトとParticleの更新前に、選択中のカメラの行列を確定する。
     auto& activeCamera = cameras_.GetActiveCamera();
     activeCamera.Update();
     const ViewCamera& renderCamera = isDebugCameraActive_ ? debugCamera_.GetViewCamera() : activeCamera;
-    particleSystem_.Update(renderCamera);
+    particleSystem_.Update(renderCamera, deltaTime);
 
     auto* materialData = &sphereAppearance_.GetMaterial();
     const auto& directionalLightData = sphereObject_.GetDirectionalLight();

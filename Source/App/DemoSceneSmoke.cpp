@@ -1,4 +1,5 @@
 #include "DemoScene.h"
+#include "Input.h"
 #include "Logger.h"
 #include "ModelManager.h"
 #include "TextureManager.h"
@@ -124,6 +125,44 @@ void DemoScene::CheckTextures(std::ostream& logStream)
         Logger::Log(logStream, "Out-of-range texture metadata index was accepted.");
         std::terminate();
     }
+
+    constexpr auto probePath = "Resources/fence.png";
+    textureManager_->LoadTexture(probePath);
+    const auto retiredIndex = textureManager_->GetTextureIndexByFilePath(probePath);
+    retiredTextureSrvForSmoke_ = textureManager_->GetSrvIndex(retiredIndex);
+    const auto pendingUploads = textureManager_->GetPendingUploadCount();
+    if (!textureManager_->UnloadTexture(retiredIndex) || textureManager_->UnloadTexture(retiredIndex) ||
+        textureManager_->GetPendingUploadCount() != pendingUploads || textureManager_->GetTextureCount() != count) {
+        throw std::runtime_error("Texture unload did not retire the texture and its pending upload.");
+    }
+    textureManager_->LoadTexture(probePath);
+    if (textureManager_->GetTextureIndexByFilePath(probePath) == retiredIndex ||
+        textureManager_->GetSrvIndex(probePath) == retiredTextureSrvForSmoke_) {
+        throw std::runtime_error("Reload reused a retired texture index or an in-flight SRV.");
+    }
+    try {
+        textureManager_->GetMetadata(retiredIndex);
+        throw std::runtime_error("Retired texture index was accepted.");
+    } catch (const std::out_of_range&) {}
+}
+
+void DemoScene::CheckDebugCamera(std::ostream& logStream)
+{
+    DebugCamera camera;
+    camera.Initialize(WinApp::kClientWidth, WinApp::kClientHeight);
+    const Input input;
+    for (int step = 0; step < 10000; ++step) { camera.Update(&input, 3, -2, true); }
+    const auto& matrix = camera.GetViewCamera().GetWorldMatrix();
+    const Vector3 right{matrix.m[0][0], matrix.m[0][1], matrix.m[0][2]};
+    const Vector3 up{matrix.m[1][0], matrix.m[1][1], matrix.m[1][2]};
+    const Vector3 forward{matrix.m[2][0], matrix.m[2][1], matrix.m[2][2]};
+    const auto close = [](float actual, float expected) { return std::abs(actual - expected) < 1e-5f; };
+    if (!(close(Vector3::Length(right), 1.0f) && close(Vector3::Length(up), 1.0f) &&
+        close(Vector3::Length(forward), 1.0f) && close(Vector3::Dot(right, up), 0.0f) &&
+        close(Vector3::Dot(right, forward), 0.0f) && close(Vector3::Dot(up, forward), 0.0f))) {
+        throw std::runtime_error("Debug camera axes lost orthonormality.");
+    }
+    Logger::Log(logStream, "Debug camera smoke: 10000 rotations preserve orthonormal axes.");
 }
 
 void DemoScene::CheckSprites(std::ostream& logStream)
@@ -230,6 +269,20 @@ void DemoScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
             std::terminate();
         }
         Logger::Log(logStream, "Particle smoke: circle and plane groups use separate textures and instance counts (2 and 5).");
+        auto& circle = particleSystem_.GetGroupSettings(kCircleParticles);
+        circle.emissionInterval = 0.25f;
+        particleSystem_.Update(cameras_.GetActiveCamera(), 0.6f);
+        if (particleSystem_.GetInstanceCount(kCircleParticles) != 6 || particleSystem_.GetInstanceCount(kPlaneParticles) != 5) {
+            throw std::runtime_error("Particle emission did not advance with the supplied delta time.");
+        }
+        circle.autoEmit = false;
+        particleSystem_.Update(cameras_.GetActiveCamera(), 4.0f);
+        if (particleSystem_.GetInstanceCount(kCircleParticles) != 0 || particleSystem_.GetInstanceCount(kPlaneParticles) != 0) {
+            throw std::runtime_error("Expired particles were not removed from both groups.");
+        }
+        particleSystem_.Emit(kCircleParticles);
+        particleSystem_.Emit(kPlaneParticles);
+        Logger::Log(logStream, "Particle smoke: variable delta advances emission and removes expired particles.");
     }
     if (frame == 0) {
         Sprite& boundsCheck = *sprites_.front();
@@ -295,6 +348,13 @@ void DemoScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
         sprites_.erase(sprites_.begin());
         sprites_.clear();
         Logger::Log(logStream, "Sprite smoke: removed one and cleared all, count=0.");
+        constexpr auto probePath = "Resources/fence.png";
+        textureManager_->UnloadTexture(textureManager_->GetTextureIndexByFilePath(probePath));
+        textureManager_->LoadTexture(probePath);
+        if (textureManager_->GetSrvIndex(probePath) != retiredTextureSrvForSmoke_) {
+            throw std::runtime_error("Texture SRV was not available for reuse after GPU completion.");
+        }
+        Logger::Log(logStream, "Texture smoke: unloaded texture SRV reused after GPU completion.");
     } else if (frame == 2) {
         CreateSprite(spriteTextures[0], { 16.0f, 16.0f }, { 160.0f, 160.0f });
         deferredSmokeSprite_->SetTextureIndex(UINT32_MAX);

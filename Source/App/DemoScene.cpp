@@ -43,9 +43,7 @@ Model::ModelData MakeSphereModel()
 void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, bool smokeTest, std::ostream& log)
 {
     directXBase_ = &directXBase;
-    srvManager_ = &srvManager;
     textureManager_ = TextureManager::GetInstance();
-    InitializeParticlePipeline(log);
     InitializeModels();
     if (smokeTest) { CheckModels(log); }
 
@@ -56,7 +54,15 @@ void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvM
 
     InitializeSprites();
     if (smokeTest) { CheckSprites(log); }
-    InitializeParticleBuffers();
+    const auto& planeTexture = planeModel_->GetModelData().material.textureFilePath;
+    const std::array particleTextures{
+        textureManager_->GetSrvIndex("Resources/circle.png"),
+        textureManager_->GetSrvIndex(planeTexture.empty() ? "Resources/uvChecker.png" : planeTexture)
+    };
+    particleSystem_.Initialize(directXBase, srvManager, particleTextures, log);
+    auto& planeGroup = particleSystem_.GetGroupSettings(kPlaneParticles);
+    planeGroup.position = {3.0f, 1.0f, 0.0f};
+    planeGroup.autoEmit = false;
 }
 
 void DemoScene::InitializeModels()
@@ -159,7 +165,7 @@ void DemoScene::Update()
     auto& activeCamera = cameras_.GetActiveCamera();
     activeCamera.Update();
     const ViewCamera& renderCamera = isDebugCameraActive_ ? debugCamera_.GetViewCamera() : activeCamera;
-    UpdateParticles(renderCamera);
+    particleSystem_.Update(renderCamera);
 
     auto* materialData = &sphereAppearance_.GetMaterial();
     const auto& directionalLightData = sphereObject_.GetDirectionalLight();
@@ -195,7 +201,7 @@ void DemoScene::Draw()
     if (!useInstancing_) { planeObject_.Draw(); }
     if (showBall_) { sphereObject_.Draw(); secondSphere_.Draw(); }
 
-    if (useInstancing_) { DrawParticles(); }
+    if (useInstancing_) { particleSystem_.Draw(*planeModel_, sphereAppearance_.GetMaterial()); }
 
     // 3DとParticleの後に、深度を使わないSprite専用パイプラインで描画する。
     if (showSprites_) {
@@ -214,6 +220,7 @@ void DemoScene::Draw()
 
 void DemoScene::Finalize()
 {
+    particleSystem_.Finalize();
     sprites_.clear();
     deferredSmokeSprite_.reset();
     secondSphere_.Finalize();

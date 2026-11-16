@@ -90,8 +90,11 @@
     <ClCompile Include="Source\App\DemoScene.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
-    <ClCompile Include="Source\App\DemoSceneParticles.cpp">
-      <Filter>Source\App</Filter>
+    <ClInclude Include="Source\Engine\Graphics\ParticleSystem.h">
+      <Filter>Source\Engine\Graphics</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\Graphics\ParticleSystem.cpp">
+      <Filter>Source\Engine\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="Source\App\DemoSceneImGui.cpp">
       <Filter>Source\App</Filter>

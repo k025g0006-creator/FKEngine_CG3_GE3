@@ -212,7 +212,25 @@ void DemoScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
     useInstancing_ = frame != 0;
     isDebugCameraActive_ = frame == 1;
     if (frame == 2) { cameras_.SetActiveCamera(1); }
-    if (frame == 1) { EmitParticles(); }
+    if (frame == 1) {
+#ifdef USE_IMGUI
+        selectedParticleGroup_ = kPlaneParticles;
+#endif
+        particleSystem_.GetGroupSettings(kCircleParticles).emissionCount = 2;
+        particleSystem_.GetGroupSettings(kPlaneParticles).emissionCount = 5;
+        if (particleSystem_.GetTextureHandle(kCircleParticles).ptr == particleSystem_.GetTextureHandle(kPlaneParticles).ptr ||
+            particleSystem_.Emit(kCircleParticles) != 2 || particleSystem_.Emit(kPlaneParticles) != 5) {
+            Logger::Log(logStream, "Particle groups did not bind separate textures or emit the requested counts.");
+            std::terminate();
+        }
+    }
+    if (frame == 2) {
+        if (particleSystem_.GetInstanceCount(kCircleParticles) != 2 || particleSystem_.GetInstanceCount(kPlaneParticles) != 5) {
+            Logger::Log(logStream, "Particle groups did not retain independent instance counts.");
+            std::terminate();
+        }
+        Logger::Log(logStream, "Particle smoke: circle and plane groups use separate textures and instance counts (2 and 5).");
+    }
     if (frame == 0) {
         Sprite& boundsCheck = *sprites_.front();
         const auto& imageBounds = textureManager_->GetMetadata(boundsCheck.GetTextureIndex());

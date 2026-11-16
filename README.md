@@ -50,7 +50,11 @@ mainを動作確認済みの共通版として使います。GE3のクラス化�
 3. 変更をコミットしたらmainへマージし、競合は両方の機能が残るように解消します。
 4. Debug・Development・Releaseをビルドし、実行時に使うHLSLも確認してからmainをpushします。
 
-アプリの起動とフレーム進行は`Source/App/main.cpp`、シーンの処理は`Source/App/DemoScene`に分けています。ImGuiの設定項目、パーティクル、スモークテストはそれぞれ`DemoSceneImGui.cpp`、`DemoSceneParticles.cpp`、`DemoSceneSmoke.cpp`にあります。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+アプリの起動とフレーム進行は`Source/App/main.cpp`、シーンの処理は`Source/App/DemoScene`に分けています。ImGuiの設定項目とスモークテストはそれぞれ`DemoSceneImGui.cpp`と`DemoSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+
+### パーティクルのテクスチャグループ
+
+Debug の ImGui で「パーティクルグループ」から「Plane のテクスチャ」を選ぶと、`plane.obj` に設定された画像（現在は `uvChecker.png`）をプレビューできます。「発生数」と「発生位置」を調整し、「パーティクルを追加」を押すと、その画像を使った粒子が発生します。Plane の自動発生は初期状態でオフで、円と Plane の粒子は同時に表示できます。発生数と表示上限はそれぞれのグループに適用され、上限は100個です。
 
 起動と描画の確認には`FKAlpha.exe --smoke-test`も使えます。3フレーム描画後に通常の終了処理で終了し、実行ファイル横の`Logs`へ確認結果を残します。このモードでは確認中の音声再生を省きます。
 
@@ -168,7 +172,7 @@ object.SetTranslate({ 0.0f, 1.0f, 0.0f });
 
 ViewCameraがワールド・ビュー・投影・ビュー投影行列を計算します。Object3DBaseはSetCameraでカメラを参照し、World・WVP・法線用逆転置行列を個別に保持します。カメラ未指定時はWVPにWorldを使います。描画順はDirectXBase::PreDraw → SRVInformationManager::PreDraw → Object3DBase::SetCommonRenderState → 各Object3DBase::Draw（Model::Drawを呼出）→ Particle → Spriteです。
 
-GPU完了後にObject3DBaseをすべてFinalizeし、手続き生成Model → ModelManager → TextureManager → DirectXBaseの順に解放します。ModelManagerが管理するModelとModelBaseは内部で解放されます。SetModelは所有権を移さないため、参照中のModelを先に破棄しないでください。ParticleもModelの頂点を借りて専用パイプラインで描画します。
+GPU完了後にParticleSystemとObject3DBaseをFinalizeし、手続き生成Model → ModelManager → TextureManager → DirectXBaseの順に解放します。ModelManagerが管理するModelとModelBaseは内部で解放されます。SetModelは所有権を移さないため、参照中のModelを先に破棄しないでください。ParticleSystemは描画時にModelの頂点を借り、インスタンスのバッファと専用パイプラインを所有します。
 
 MaltiCameraは複数のViewCameraを所有し、描画に使う1台を選びます。F2またはImGuiの「使用するカメラ」で標準・斜め・俯瞰を切り替えられます。ImGuiでは選択したカメラの位置、回転、垂直視野角、アスペクト比、クリップ距離を変更できます。F1でデバッグカメラを切り替えます。描画前に選択中のカメラを更新し、3DオブジェクトとParticleでビュー投影行列を共有します。
 

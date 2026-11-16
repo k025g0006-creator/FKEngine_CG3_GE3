@@ -1,14 +1,57 @@
-#include "DemoScene.h"
+#include "ParticleSystem.h"
 #include "DirectXBase.h"
 #include "Logger.h"
 #include "SRVInformationManager.h"
-#include "TextureManager.h"
+#include "ViewCamera.h"
+#include <algorithm>
 #include <numbers>
 #include <stdexcept>
 
 using Microsoft::WRL::ComPtr;
 
-void DemoScene::InitializeParticlePipeline(std::ostream& logStream)
+void ParticleSystem::Initialize(DirectXBase& directX, SRVInformationManager& srvManager,
+    std::span<const uint32_t> textureSrvIndices, std::ostream& log)
+{
+    if (directXBase_) { throw std::logic_error("Finalize ParticleSystem before initializing again."); }
+    if (srvManager.GetDirectXBase() != &directX) {
+        throw std::invalid_argument("ParticleSystem requires the shared SRV heap for its DirectXBase.");
+    }
+    if (textureSrvIndices.empty()) { throw std::invalid_argument("ParticleSystem requires at least one texture."); }
+    directXBase_ = &directX;
+    srvManager_ = &srvManager;
+    try {
+        InitializePipeline(log);
+        materialResource_ = directX.CreateBufferResource(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+        if (!materialResource_ || FAILED(materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&particleMaterialData_)))) {
+            throw std::runtime_error("Failed to map particle material.");
+        }
+        groups_.resize(textureSrvIndices.size());
+        for (std::size_t index = 0; index < groups_.size(); ++index) {
+            InitializeGroup(groups_[index], textureSrvIndices[index]);
+        }
+    } catch (...) {
+        Finalize();
+        throw;
+    }
+}
+
+void ParticleSystem::Finalize()
+{
+    for (auto& group : groups_) {
+        if (group.instancingSrvIndex) {
+            srvManager_->Free(srvManager_->GetCPUDescriptorHandle(*group.instancingSrvIndex));
+        }
+    }
+    groups_.clear();
+    particleMaterialData_ = nullptr;
+    materialResource_.Reset();
+    particlePipelineStates_ = {};
+    particleRootSignature_.Reset();
+    srvManager_ = nullptr;
+    directXBase_ = nullptr;
+}
+
+void ParticleSystem::InitializePipeline(std::ostream& logStream)
 {
     D3D12_DESCRIPTOR_RANGE textureRange{};
     textureRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -84,60 +127,57 @@ void DemoScene::InitializeParticlePipeline(std::ostream& logStream)
     }
 }
 
-void DemoScene::InitializeParticleBuffers()
+void ParticleSystem::InitializeGroup(Group& group, uint32_t textureSrvIndex)
 {
-    // Instancing用のTransformationMatrixリソースを作る
-    instancingResource_ =
-        directXBase_->CreateBufferResource(sizeof(ParticleForGPU) * kNumMaxInstance);
-
-    // 書き込むためのアドレスを取得
-    if (!instancingResource_ || FAILED(instancingResource_->Map(0, nullptr, reinterpret_cast<void**>(&instancingData_)))) {
+    srvManager_->GetGPUDescriptorHandle(textureSrvIndex);
+    group.textureSrvIndex = textureSrvIndex;
+    group.instancingResource = directXBase_->CreateBufferResource(sizeof(ParticleForGPU) * kMaxParticlesPerGroup);
+    if (!group.instancingResource ||
+        FAILED(group.instancingResource->Map(0, nullptr, reinterpret_cast<void**>(&group.instancingData)))) {
         throw std::runtime_error("Failed to map particle instances.");
     }
-
-    // 単位行列を書き込んでおく
-    for (uint32_t index = 0; index < kNumMaxInstance; ++index)
-    {
-        instancingData_[index].WVP = Math::MakeIdentity4x4();
-        instancingData_[index].World = Math::MakeIdentity4x4();
-        instancingData_[index].color = { 1.0f, 1.0f, 1.0f, 1.0f };
-    }
-
-    // Particleも共有ヒープから必要な番号を確保する。
-    instancingSrvIndex_ = srvManager_->Allocate();
-    srvManager_->CreateSRVForStructuredBuffer(instancingSrvIndex_, instancingResource_.Get(), kNumMaxInstance, sizeof(ParticleForGPU));
-
-
-    particleTextureSrvIndex_ = textureManager_->GetSrvIndex("Resources/circle.png");
-    materialResource_ = directXBase_->CreateBufferResource(D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-    if (!materialResource_ || FAILED(materialResource_->Map(0, nullptr, reinterpret_cast<void**>(&particleMaterialData_)))) {
-        throw std::runtime_error("Failed to map particle material.");
-    }
+    group.instancingSrvIndex = srvManager_->Allocate();
+    srvManager_->CreateSRVForStructuredBuffer(*group.instancingSrvIndex, group.instancingResource.Get(),
+        kMaxParticlesPerGroup, sizeof(ParticleForGPU));
 }
 
-void DemoScene::EmitParticles()
+uint32_t ParticleSystem::Emit(std::size_t groupIndex)
 {
+    return Emit(groups_.at(groupIndex));
+}
+
+uint32_t ParticleSystem::Emit(Group& group)
+{
+    const auto available = kMaxParticlesPerGroup - static_cast<uint32_t>(group.particles.size());
+    const auto count = static_cast<uint32_t>(std::clamp(group.settings.emissionCount, 0, static_cast<int>(available)));
     std::uniform_real_distribution<float> offset(-1.0f, 1.0f);
     std::uniform_real_distribution<float> color(0.0f, 1.0f);
     std::uniform_real_distribution<float> lifetime(1.0f, 3.0f);
-    for (uint32_t index = 0; index < emitter_.count; ++index) {
+    for (uint32_t index = 0; index < count; ++index) {
         Particle particle;
         const Vector3 displacement{offset(randomEngine_), offset(randomEngine_), offset(randomEngine_)};
-        particle.transform.translate = Vector3::Add(emitter_.position, displacement);
+        particle.transform.translate = Vector3::Add(group.settings.position, displacement);
         particle.velocity = {offset(randomEngine_), offset(randomEngine_), offset(randomEngine_)};
         particle.color = {color(randomEngine_), color(randomEngine_), color(randomEngine_), 1.0f};
         particle.lifeTime = lifetime(randomEngine_);
-        particles_.push_back(particle);
+        group.particles.push_back(particle);
     }
+    return count;
 }
 
-void DemoScene::UpdateParticles(const ViewCamera& camera)
+D3D12_GPU_DESCRIPTOR_HANDLE ParticleSystem::GetTextureHandle(std::size_t groupIndex) const
 {
-    constexpr float kDeltaTime = 1.0f / 60.0f;
+    const auto& group = groups_.at(groupIndex);
+    return srvManager_->GetGPUDescriptorHandle(group.textureSrvIndex);
+}
+
+void ParticleSystem::Update(const ViewCamera& camera)
+{
+    if (groups_.empty()) { throw std::logic_error("Initialize ParticleSystem before Update."); }
     const Matrix4x4& viewProjectionMatrix = camera.GetViewProjectionMatrix();
     // BillboardMatrixを作る（全てのParticleで同じ行列を使える）
     Matrix4x4 billboardMatrix = Math::MakeIdentity4x4(); // 利用しない場合は単位行列
-    if (useBillboard_)
+    if (settings_.useBillboard)
     {
         // 板ポリの裏が見えているので、Y軸でπ回転させて表をカメラ側へ向ける
         Matrix4x4 backToFrontMatrix = Math::MakeRotateYMatrix(std::numbers::pi_v<float>);
@@ -147,33 +187,37 @@ void DemoScene::UpdateParticles(const ViewCamera& camera)
         billboardMatrix.m[3][1] = 0.0f;
         billboardMatrix.m[3][2] = 0.0f;
     }
-    // Emitterの頻度に従ってParticleを発生させる
-    if (updateParticles_)
-    {
-        emitter_.frequencyTime += kDeltaTime; // 時刻を進める
-        if (emitter_.frequency <= emitter_.frequencyTime) // 頻度より大きいなら発生
-        {
-            // 発生処理。発生したParticleをparticles_の後ろに連結する
-            EmitParticles();
-            // 余計に過ぎた時間も加味して頻度用時刻を更新する
-            emitter_.frequencyTime -= emitter_.frequency;
+    for (auto& group : groups_) {
+        UpdateGroup(group, billboardMatrix, viewProjectionMatrix);
+    }
+}
+
+void ParticleSystem::UpdateGroup(Group& group, const Matrix4x4& billboard, const Matrix4x4& viewProjection)
+{
+    constexpr float kDeltaTime = 1.0f / 60.0f;
+    if (settings_.updateParticles && group.settings.autoEmit) {
+        const float interval = (std::max)(group.settings.emissionInterval, kDeltaTime);
+        group.emissionElapsed += kDeltaTime;
+        if (interval <= group.emissionElapsed) {
+            Emit(group);
+            group.emissionElapsed -= interval;
         }
     }
 
-    numInstance_ = 0;
-    for (auto it = particles_.begin(); it != particles_.end();) {
+    group.numInstances = 0;
+    for (auto it = group.particles.begin(); it != group.particles.end();) {
         auto& particle = *it;
         if (particle.currentTime >= particle.lifeTime) {
-            it = particles_.erase(it);
+            it = group.particles.erase(it);
             continue;
         }
 
-        if (updateParticles_) {
+        if (settings_.updateParticles) {
             auto& position = particle.transform.translate;
-            if (useAccelerationField_ && Math::IsCollision(accelerationField_.area, position)) {
-                particle.velocity.x += accelerationField_.acceleration.x * kDeltaTime;
-                particle.velocity.y += accelerationField_.acceleration.y * kDeltaTime;
-                particle.velocity.z += accelerationField_.acceleration.z * kDeltaTime;
+            if (settings_.useAccelerationField && Math::IsCollision(settings_.accelerationArea, position)) {
+                particle.velocity.x += settings_.acceleration.x * kDeltaTime;
+                particle.velocity.y += settings_.acceleration.y * kDeltaTime;
+                particle.velocity.z += settings_.acceleration.z * kDeltaTime;
             }
             position.x += particle.velocity.x * kDeltaTime;
             position.y += particle.velocity.y * kDeltaTime;
@@ -181,35 +225,35 @@ void DemoScene::UpdateParticles(const ViewCamera& camera)
             particle.currentTime += kDeltaTime;
         }
 
-        if (numInstance_ < kNumMaxInstance) {
-            const auto scale = Math::MakeScaleMatrix(particle.transform.scale);
-            const auto translation = Math::MakeTranslateMatrix(particle.transform.translate);
-            const auto world = Math::Multiply(Math::Multiply(scale, billboardMatrix), translation);
-            auto& instance = instancingData_[numInstance_++];
-            instance.WVP = Math::Multiply(world, viewProjectionMatrix);
-            instance.World = world;
-            instance.color = particle.color;
-            instance.color.w = 1.0f - particle.currentTime / particle.lifeTime;
-        }
+        const auto scale = Math::MakeScaleMatrix(particle.transform.scale);
+        const auto translation = Math::MakeTranslateMatrix(particle.transform.translate);
+        const auto world = Math::Multiply(Math::Multiply(scale, billboard), translation);
+        auto& instance = group.instancingData[group.numInstances++];
+        instance.WVP = Math::Multiply(world, viewProjection);
+        instance.World = world;
+        instance.color = particle.color;
+        instance.color.w = 1.0f - particle.currentTime / particle.lifeTime;
         ++it;
     }
 }
 
-void DemoScene::DrawParticles()
+void ParticleSystem::Draw(const Model& mesh, const Model::Material& material)
 {
-    if (numInstance_ == 0) { return; }
-    *particleMaterialData_ = sphereAppearance_.GetMaterial();
+    if (std::ranges::none_of(groups_, [](const Group& group) { return group.numInstances != 0; })) { return; }
+    *particleMaterialData_ = material;
     auto* commandList = directXBase_->GetCommandList().Get();
     commandList->SetGraphicsRootSignature(particleRootSignature_.Get());
-    commandList->SetPipelineState(particlePipelineStates_[currentParticleBlendMode_].Get());
+    commandList->SetPipelineState(particlePipelineStates_.at(settings_.blendMode).Get());
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
     commandList->SetGraphicsRootConstantBufferView(0, materialResource_->GetGPUVirtualAddress());
-    // Instancing用のStructuredBufferのSRVを設定する
-    srvManager_->SetGraphicsRootDescriptorTable(1, instancingSrvIndex_);
-    srvManager_->SetGraphicsRootDescriptorTable(2, particleTextureSrvIndex_); // circle.png
+    commandList->IASetVertexBuffers(0, 1, &mesh.GetVertexBufferView());
 
-    commandList->IASetVertexBuffers(0, 1, &planeModel_->GetVertexBufferView());
-
-    commandList->DrawInstanced(static_cast<UINT>(planeModel_->GetModelData().vertices.size()), numInstance_, 0, 0);
+    const auto vertexCount = static_cast<UINT>(mesh.GetModelData().vertices.size());
+    for (const auto& group : groups_) {
+        if (group.numInstances == 0) { continue; }
+        srvManager_->SetGraphicsRootDescriptorTable(1, *group.instancingSrvIndex);
+        srvManager_->SetGraphicsRootDescriptorTable(2, group.textureSrvIndex);
+        commandList->DrawInstanced(vertexCount, group.numInstances, 0, 0);
+    }
 }

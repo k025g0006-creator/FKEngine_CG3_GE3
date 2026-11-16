@@ -54,18 +54,25 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 
 アプリの起動とフレーム進行は`Source/App/main.cpp`、シーンの処理は`Source/App/DemoScene`に分けています。ImGuiの設定項目とスモークテストはそれぞれ`DemoSceneImGui.cpp`と`DemoSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
 
+### 音声ファイルの再生
+
+`Sound::Load()` は WAV と MP3 を Media Foundation で読み込み、PCM を XAudio2 へ渡します。非圧縮 WAV は元のサンプルレート、チャンネル構成、ビット深度を使います。圧縮音声の出力は、デコーダーが対応する場合に 32-bit float を使い、それ以外はデコーダーが提供する整数 PCM を使います。読み込んだ音声は PCM に展開してメモリに保持します。
+
+通常起動では `Resources/Alarm01.mp3` を SE として再生し、Space で再度鳴らせます。BGM と SE を追加するときは、たとえば `Resources/Audio/Bgm.mp3` と `Resources/Audio/Jump.mp3` に置き、それぞれ別の `Sound` に読み込みます。BGM は `PlayBgm(audio.Get())` でループし、SE はイベント時に `PlaySe(audio.Get())` で1回再生します。同じ SE を再度鳴らすとその音源の再生が先頭に戻ります。`StopBgm()` と `StopSe()` で個別に停止できます。
+
+実行ファイルのあるフォルダーで `--bgm` を指定すると BGM がループ再生され、`--sound` で SE を差し替えられます。
+
+Debug x64 の ImGui では、右上の「サウンド」パネルから BGM と SE をそれぞれ選んで再生・停止できます。音源を追加するには、プロジェクトの `Resources/Audio` に MP3 を置いてビルドします。実行フォルダーの `Resources` に直接置いた場合は「音源一覧を更新」を押すと一覧に反映されます。
+
+```powershell
+.\FKAlpha.exe --bgm 'C:\Music\bgm.mp3' --sound 'C:\Music\jump.mp3'
+```
+
 ### パーティクルのテクスチャグループ
 
 Debug の ImGui で「パーティクルグループ」から「Plane のテクスチャ」を選ぶと、`plane.obj` に設定された画像（現在は `uvChecker.png`）をプレビューできます。「発生数」と「発生位置」を調整し、「パーティクルを追加」を押すと、その画像を使った粒子が発生します。Plane の自動発生は初期状態でオフで、円と Plane の粒子は同時に表示できます。発生数と表示上限はそれぞれのグループに適用され、上限は100個です。
 
-### CG3 評価課題1
-
-- **B キー** または ImGui の **中央にブラックホールを出す (B)** で演出を再生します。Editor では吸い込む粒の数、爆発までの時間、主衝撃波の色を調整し、その場でプレビューできます。保存先は CG3 の実行フォルダ内の `Resources/CG3/blackhole.txt` です。
-- **M キー** または ImGui の **CosmicMistを再生 (M)** で CosmicMist を再生します。Effekseer の DirectX 12 SDK がある場合に有効です。準備するには、Visual Studio の開発者用 PowerShell で EffekseerForCpp 1.80.8 のソースを指定してからビルドしてください。
-
-```powershell
-.\SetupEffekseer.ps1 -SdkSource 'C:\path\to\EffekseerForCpp1.80.8'
-```
+粒子はグループごとに連続したメモリへ確保し、寿命を迎えた要素は末尾と入れ替えて削除します。`ParticleSystem::Update()` はフレーム間の経過時間を秒で受け取り、発生間隔・移動・寿命に使います。
 
 起動と描画の確認には`FKAlpha.exe --smoke-test`も使えます。3フレーム描画後に通常の終了処理で終了し、実行ファイル横の`Logs`へ確認結果を残します。このモードでは確認中の音声再生を省きます。
 
@@ -135,9 +142,11 @@ ImGuiの「スプライト」では、UVチェッカー・モンスターボー�
 
 ### テクスチャ管理
 
-TextureManagerはGetInstanceで取得し、mainが所有するDirectXBaseをInitializeへ渡します。LoadTextureは画像を読み込んでキャッシュへ格納し、同じ画像の再読み込み要求は既存データを再利用します。GetSrvHandleGPUで描画用ハンドル、GetMetadataで元画像の幅・高さ等を取得できます。パスの相対・絶対、./、区切り文字、Windowsの大小文字を正規化します。
+TextureManagerはGetInstanceで取得し、mainが所有するSRVInformationManagerをInitializeへ渡します。LoadTextureは画像を読み込んでキャッシュへ格納し、同じ画像の再読み込み要求は既存データを再利用します。GetSrvHandleGPUで描画用ハンドル、GetMetadataで元画像の幅・高さ等を取得できます。パスの相対・絶対、./、区切り文字、Windowsの大小文字を正規化します。
 SRVInformationManagerは512枠の共有ヒープを持ち、ImGui・テクスチャ・Particleが必要な番号をAllocateで確保します。テクスチャ番号は従来どおり画像の識別に使い、共有ヒープ内の番号はGetSrvIndexで取得します。ImGuiはコールバックで不要なSRVを返却し、番号を再利用します。上限を超える要求はエラーで通知します。
-画像のデコードとMipMap生成はTextureManager、GPUリソースの生成・転送はDirectXBaseの役割です。転送用UploadHeapはTextureData内に保持し、DirectXBase::PostDrawのGPU完了待ち後にReleaseUploadResourcesで解放します。終了順は、GPU完了 → 全Sprite解放 → TextureManager::Finalize → SRVInformationManager::Finalize → DirectXBase解放です。Finalize後のGetInstanceは新しい管理インスタンスを作るため、終了処理では呼び出しません。
+画像のデコードとMipMap生成はTextureManager、GPUリソースの生成・転送はDirectXBaseの役割です。シーン切り替えなどでテクスチャを解放する場合は、描画側の参照を外してから `UnloadTexture(textureIndex)` を呼びます。登録はその時点で外れ、転送用UploadHeap・画像リソース・SRVは `DirectXBase::PostDraw` のGPU完了待ち後に `ReleaseCompletedResources()` で回収します。解放したSRV枠は再利用できます。終了順は、GPU完了 → 全Sprite解放 → TextureManager::Finalize → SRVInformationManager::Finalize → DirectXBase解放です。
+
+ImGui は Windows のフォントフォルダーからメイリオ、游ゴシックの順に探し、どちらも読み込めない場合は ImGui の内蔵フォントを使います。ImGui 描画直前には共有SRVヒープを設定します。
 ImGuiの「選択中の画像」で既存Spriteの画像を切り替えられます。「読み込み済み画像」はキャッシュ枚数であり、Spriteを複製しても増えません。「元画像サイズに合わせる」で画像の解像度を表示サイズへ反映します。smoke-testはパス違いでの重複読込防止、読込失敗時のキャッシュ不変、転送完了後のUploadHeap解放も確認します。
 
 ### アンカー・反転・画像の切り出し
@@ -158,7 +167,7 @@ ImGuiの画像選択に「画像なし」を追加しています。画像なし
 Spriteは頂点・座標変換・マテリアルを別々のダーティフラグで管理します。同じ値のsetterや、クランプ後に同じ範囲となる指定ではフラグを立てません。Updateは未変更なら即座に戻り、位置と回転の変更では変換バッファだけ、サイズ・基準点・反転では頂点バッファだけ、色や切り出し・UV変形ではマテリアルだけを更新します。GetUVTransformはUpdate後の合成UV行列、IsDirtyは更新が必要かどうかを返します。
 直交射影行列はSpriteBaseで共有します。SetScreenSizeで論理解像度を変更した場合だけ再計算し、リビジョン番号で全Spriteに変換行列の再更新を通知します。GPUのviewportやウィンドウ自体のサイズ変更とは別の設定です。画像の実サイズもテクスチャ変更時にGetDescから取得して保持します。
 頂点のUVは0～1で固定し、ピクセル切り出しを表す行列と追加UV変形をSprite::UpdateMaterialで合成します。適用順は「固定UV → 切り出し → UV倍率・回転・移動」で、以前の表示と同等です。従来の頂点側での切り出しは廃止しています。
-TextureManagerのデータ本体はvector、正規化パスから番号への検索はunordered_mapで管理します。登録件数に対して平均O(1)で逆引きし、同一パスの読込は再利用します。登録に失敗した場合はvectorと検索表を両方戻します。smoke-testでは未変更時・同値setter・射影変更の更新判定、四隅と中心のUV数値互換、パス違いの共有と失敗時の不変性を確認します。
+TextureManagerはテクスチャ番号と正規化パスをそれぞれハッシュ表で管理します。個別解放の前後で他のテクスチャ番号は有効で、解放した番号は失効します。同じファイルを再度読み込むと新しい番号が発行されます。smoke-testではパス違いの共有、読み込み失敗時の状態、GPU完了後のSRV再利用を確認します。
 
 ### 3Dオブジェクトとモデル
 
@@ -185,7 +194,7 @@ ViewCameraがワールド・ビュー・投影・ビュー投影行列を計算�
 
 GPU完了後にParticleSystemとObject3DBaseをFinalizeし、手続き生成Model → ModelManager → TextureManager → DirectXBaseの順に解放します。ModelManagerが管理するModelとModelBaseは内部で解放されます。SetModelは所有権を移さないため、参照中のModelを先に破棄しないでください。ParticleSystemは描画時にModelの頂点を借り、インスタンスのバッファと専用パイプラインを所有します。
 
-MaltiCameraは複数のViewCameraを所有し、描画に使う1台を選びます。F2またはImGuiの「使用するカメラ」で標準・斜め・俯瞰を切り替えられます。ImGuiでは選択したカメラの位置、回転、垂直視野角、アスペクト比、クリップ距離を変更できます。F1でデバッグカメラを切り替えます。描画前に選択中のカメラを更新し、3DオブジェクトとParticleでビュー投影行列を共有します。
+MaltiCameraは複数のViewCameraを所有し、描画に使う1台を選びます。F2またはImGuiの「使用するカメラ」で標準・斜め・俯瞰を切り替えられます。ImGuiでは選択したカメラの位置、回転、垂直視野角、アスペクト比、クリップ距離を変更できます。F1でデバッグカメラを切り替えます。デバッグカメラは回転を加えるたびに基底を正規直交化します。描画前に選択中のカメラを更新し、3DオブジェクトとParticleでビュー投影行列を共有します。
 
 smoke-testでは同じModelの共有と配置の独立性、Transformのsetter/getter、ModelなしのUpdate/Draw、非均一スケールの法線変換、カメラ行列、読込失敗後の再初期化を検証し、3フレーム描画します。
 

@@ -6,9 +6,31 @@
 #include "imgui.h"
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_win32.h"
+#include <array>
 #include <stdexcept>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+
+namespace
+{
+void LoadInterfaceFont(ImGuiIO& io)
+{
+    std::array<wchar_t, MAX_PATH> windowsDirectory{};
+    const auto length = GetWindowsDirectoryW(windowsDirectory.data(), static_cast<UINT>(windowsDirectory.size()));
+    if (length != 0 && length < windowsDirectory.size()) {
+        const auto fontsDirectory = std::filesystem::path(windowsDirectory.data()) / L"Fonts";
+        ImFontConfig config;
+        config.Flags |= ImFontFlags_NoLoadError;
+        for (const auto* font : {L"meiryo.ttc", L"YuGothM.ttc"}) {
+            const auto utf8Path = (fontsDirectory / font).u8string();
+            io.FontDefault = io.Fonts->AddFontFromFileTTF(reinterpret_cast<const char*>(utf8Path.c_str()),
+                16.0f, &config, io.Fonts->GetGlyphRangesJapanese());
+            if (io.FontDefault) { return; }
+        }
+    }
+    io.FontDefault = io.Fonts->AddFontDefault();
+}
+}
 
 ImGuiManager::~ImGuiManager()
 {
@@ -29,7 +51,7 @@ void ImGuiManager::Initialize(HWND hwnd, DirectXBase& directXBase, SRVInformatio
     try {
         ImGui::StyleColorsDark();
         ImGuiIO& io = ImGui::GetIO();
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\meiryo.ttc", 16.0f, nullptr, io.Fonts->GetGlyphRangesJapanese());
+        LoadInterfaceFont(io);
         win32Initialized_ = ImGui_ImplWin32_Init(hwnd);
         if (!win32Initialized_) { throw std::runtime_error("Failed to initialize ImGui Win32 backend."); }
         ImGui_ImplDX12_InitInfo imguiInit{};
@@ -55,6 +77,7 @@ void ImGuiManager::Initialize(HWND hwnd, DirectXBase& directXBase, SRVInformatio
         if (!dx12Initialized_) { throw std::runtime_error("Failed to initialize ImGui DirectX 12 backend."); }
         io.IniFilename = iniFilename_.c_str();
         directXBase_ = &directXBase;
+        srvManager_ = &srvManager;
     } catch (...) {
         Finalize();
         throw;
@@ -75,6 +98,7 @@ void ImGuiManager::EndFrame()
 
 void ImGuiManager::Draw() const
 {
+    srvManager_->PreDraw();
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), directXBase_->GetCommandList().Get());
 }
 
@@ -86,6 +110,7 @@ void ImGuiManager::Finalize()
     ImGui::DestroyContext(context_);
     context_ = nullptr;
     directXBase_ = nullptr;
+    srvManager_ = nullptr;
     dx12Initialized_ = false;
     win32Initialized_ = false;
     iniFilename_.clear();

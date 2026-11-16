@@ -20,6 +20,8 @@ public:
     static void Finalize();
     void Initialize(SRVInformationManager& srvManager);
     void LoadTexture(const std::string& filePath);
+    // 呼び出し側で参照を外した後に呼ぶ。GPUリソースとSRVは完了待ち後に回収する。
+    bool UnloadTexture(uint32_t textureIndex);
     // テクスチャ番号と、共有ヒープ内のSRV番号は別々に管理する。
     uint32_t GetSrvIndex(const std::string& filePath) const;
     uint32_t GetSrvIndex(uint32_t textureIndex) const;
@@ -34,7 +36,7 @@ public:
     size_t GetTextureCount() const { return textureDatas_.size(); }
     size_t GetPendingUploadCount() const;
     // DirectXBase::PostDrawでGPUの完了を待った直後にだけ呼ぶ。
-    void ReleaseUploadResources();
+    void ReleaseCompletedResources();
 
 private:
     TextureManager() = default;
@@ -45,6 +47,7 @@ private:
     struct TextureData
     {
         std::string filePath;
+        std::wstring pathKey;
         DirectX::TexMetadata metadata{};
         Microsoft::WRL::ComPtr<ID3D12Resource> resource;
         Microsoft::WRL::ComPtr<ID3D12Resource> uploadResource;
@@ -55,6 +58,8 @@ private:
     static TextureManager* instance_;
     DirectXBase* directXBase_ = nullptr; // mainから借りる。所有しない。
     SRVInformationManager* srvManager_ = nullptr; // mainから借りる。
-    std::vector<TextureData> textureDatas_;
+    uint32_t nextTextureIndex_ = 0;
+    std::unordered_map<uint32_t, TextureData> textureDatas_;
     std::unordered_map<std::wstring, uint32_t> textureIndices_;
+    std::vector<TextureData> retiredTextures_;
 };

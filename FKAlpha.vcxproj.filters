@@ -198,6 +198,9 @@
     <None Include="Resources\Alarm01.wav">
       <Filter>Resources</Filter>
     </None>
+    <None Include="Resources\Alarm01.mp3">
+      <Filter>Resources</Filter>
+    </None>
     <None Include="Resources\axis.blend">
       <Filter>Resources</Filter>
     </None>

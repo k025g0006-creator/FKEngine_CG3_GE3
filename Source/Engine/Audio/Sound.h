@@ -1,63 +1,41 @@
 #pragma once
+
 #include <xaudio2.h>
-#include <wrl.h>
-#include <cstdint>
-#include <string>
-
-// チャンクヘッダ
-struct ChunkHeader
-{
-	char id[4];   // チャンク毎のID
-	int32_t size; // チャンクサイズ
-};
-
-// RIFFヘッダチャンク
-struct RiffHeader
-{
-	ChunkHeader chunk;   // "RIFF"
-	char type[4];        // "WAVE"
-};
-
-// FMTチャンク
-struct FormatChunk
-{
-	ChunkHeader chunk;  // "fmt"
-	WAVEFORMATEX fmt;   // 波形フォーマット
-};
+#include <combaseapi.h>
+#include <filesystem>
+#include <memory>
+#include <vector>
 
 class Sound
 {
 public:
-	Sound() = default;
-	~Sound();
+    Sound() = default;
+    Sound(const Sound&) = delete;
+    Sound& operator=(const Sound&) = delete;
 
-	// コピー禁止（バッファの二重解放を防ぐ）
-	Sound(const Sound&) = delete;
-	Sound& operator=(const Sound&) = delete;
-
-	// 音声データの読み込み
-	void Load(const std::string& filename);
-
-	// 音声の再生
-	// loop : trueでループ再生
-	void Play(IXAudio2* xAudio2, bool loop = false);
-
-	// 停止
-	void Stop();
-
-	// 音声データの解放
-	void Unload();
+    // COM・Media Foundationの初期化後に呼ぶ。読み込みに失敗した場合は以前の音声を保持する。
+    HRESULT Load(const std::filesystem::path& filename);
+    HRESULT Play(IXAudio2* xAudio2, bool loop = false);
+    // 同じ役割の音声を再生し直す。BGMとSEは個別に停止できる。
+    HRESULT PlayBgm(IXAudio2* xAudio2);
+    HRESULT PlaySe(IXAudio2* xAudio2);
+    void StopBgm();
+    void StopSe();
+    void Stop();
+    void Unload();
+    const WAVEFORMATEX* GetFormat() const { return format_.get(); }
 
 private:
-	// 波形フォーマット
-	WAVEFORMATEX wfex_{};
+    struct VoiceDeleter
+    {
+        void operator()(IXAudio2SourceVoice* voice) const { voice->DestroyVoice(); }
+    };
+    using Voice = std::unique_ptr<IXAudio2SourceVoice, VoiceDeleter>;
 
-	// バッファの先頭アドレス
-	BYTE* pBuffer_ = nullptr;
+    HRESULT StartPlayback(IXAudio2* xAudio2, bool loop, Voice& voice);
 
-	// バッファのサイズ
-	unsigned int bufferSize_ = 0;
-
-	// 再生に使用しているSourceVoice（Stop用に保持）
-	IXAudio2SourceVoice* pSourceVoice_ = nullptr;
+    std::unique_ptr<WAVEFORMATEX, decltype(&CoTaskMemFree)> format_{nullptr, &CoTaskMemFree};
+    std::vector<BYTE> pcm_;
+    Voice bgmVoice_;
+    Voice seVoice_;
 };

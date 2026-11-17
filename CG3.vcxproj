@@ -96,7 +96,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Source\CG3\main.cpp" />
+    <ClCompile Include="Source\CG3\Cg3DemoMain.cpp" />
     <ClCompile Include="Source\CG3\BlackHoleEffect.cpp" />
     <ClCompile Include="Source\CG3\DebugCamera.cpp" />
     <ClCompile Include="Source\CG3\EffekseerSceneEffect.cpp" Condition="'$(EnableEffekseer)' == 'true'" />

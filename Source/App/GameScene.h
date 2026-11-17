@@ -2,12 +2,14 @@
 
 #include "BlendMode.h"
 #include "DebugCamera.h"
+#include "BaseScene.h"
 #include "MaltiCamera.h"
 #include "Model.h"
 #include "Object3DBase.h"
 #include "ParticleSystem.h"
 #include "Sprite.h"
 #include "SpriteBase.h"
+#include "Sound.h"
 #include <array>
 #include <iosfwd>
 #include <memory>
@@ -19,24 +21,27 @@ class ModelManager;
 class SRVInformationManager;
 class TextureManager;
 
-// FKAlphaのサンプルシーン。ウィンドウ・DirectX・ImGuiの起動と終了はmainが担当する。
-class DemoScene
+// FKAlphaのゲームプレイシーン。
+class GameScene final : public BaseScene
 {
 public:
-    void Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, SpriteBase& spriteBase,
-        bool smokeTest, std::ostream& log);
-    void UpdateCameraInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown);
-    void Update(float deltaTime);
-    void Draw();
-    void Finalize();
-    void PrepareSmokeFrame(uint32_t frame, std::ostream& log);
+    bool Initialize(const SceneContext& context) override;
+    void UpdateInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown) override;
+    void Update(float deltaTime) override;
+    void Draw() override;
+    void Finalize() override;
+    void PrepareSmokeFrame(uint32_t frame, std::ostream& log) override;
+    bool DidSmokeTestPass() const override;
 #ifdef USE_IMGUI
-    void DrawSettings();
+    void DrawSettings() override;
 #endif
 
 private:
     void InitializeModels();
     void InitializeSprites();
+    bool InitializeAudio(const SceneContext& context);
+    void PlaySe();
+    void ReturnToTitle();
     Sprite& CreateSprite(const std::string& texture, const Vector2& position, const Vector2& size);
     Sprite& DuplicateSprite(std::size_t index);
     void CheckModels(std::ostream& log);
@@ -49,9 +54,23 @@ private:
     void DrawLightingSettings();
     void DrawSpriteSettings();
     void DrawCameraSettings();
+    void DrawSoundSettings();
+    void RefreshSoundFiles();
 #endif
 
     DirectXBase* directXBase_ = nullptr;
+    IXAudio2* audio_ = nullptr;
+    std::ostream* log_ = nullptr;
+    Sound alarm_;
+    Sound bgm_;
+    HRESULT loadResult_ = S_OK;
+    HRESULT bgmLoadResult_ = S_OK;
+#ifdef USE_IMGUI
+    std::filesystem::path soundDirectory_;
+    std::vector<std::filesystem::path> soundFiles_;
+    std::filesystem::path selectedSe_, selectedBgm_, loadedSe_, loadedBgm_;
+    std::string seStatus_, bgmStatus_;
+#endif
     TextureManager* textureManager_ = nullptr;
     ModelManager* modelManager_ = nullptr;
     Model* planeModel_ = nullptr;

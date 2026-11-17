@@ -1,9 +1,12 @@
-#include "DemoScene.h"
+#include "GameScene.h"
 #include "Input.h"
+#include "Logger.h"
 #include "ModelManager.h"
+#include "SceneNames.h"
 #include "TextureManager.h"
 #include "WinApp.h"
 #include <cmath>
+#include <format>
 #include <numbers>
 
 namespace
@@ -40,11 +43,12 @@ Model::ModelData MakeSphereModel()
 }
 }
 
-void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvManager, SpriteBase& spriteBase,
-    bool smokeTest, std::ostream& log)
+bool GameScene::Initialize(const SceneContext& context)
 {
-    spriteBase_ = &spriteBase;
-    directXBase_ = &directXBase;
+    spriteBase_ = &context.spriteBase;
+    directXBase_ = &context.directX;
+    const bool smokeTest = context.smokeTest;
+    auto& log = context.log;
     textureManager_ = TextureManager::GetInstance();
     InitializeModels();
     if (smokeTest) {
@@ -64,13 +68,79 @@ void DemoScene::Initialize(DirectXBase& directXBase, SRVInformationManager& srvM
         textureManager_->GetTextureIndexByFilePath("Resources/circle.png"),
         textureManager_->GetTextureIndexByFilePath(planeTexture.empty() ? "Resources/uvChecker.png" : planeTexture)
     };
-    particleSystem_.Initialize(directXBase, srvManager, *textureManager_, particleTextures, log);
+    particleSystem_.Initialize(context.directX, context.srvManager, *textureManager_, particleTextures, log);
     auto& planeGroup = particleSystem_.GetGroupSettings(kPlaneParticles);
     planeGroup.position = {3.0f, 1.0f, 0.0f};
     planeGroup.autoEmit = false;
+    return InitializeAudio(context);
 }
 
-void DemoScene::InitializeModels()
+bool GameScene::InitializeAudio(const SceneContext& context)
+{
+    audio_ = context.smokeTest ? nullptr : context.audio;
+    log_ = &context.log;
+    auto sePath = context.resourceDirectory / "Alarm01.mp3";
+    std::filesystem::path bgmPath;
+    for (std::size_t index = 0; index < context.arguments.size(); ++index) {
+        const auto& argument = context.arguments[index];
+        if (argument == L"--sound" || argument == L"--bgm") {
+            if (++index == context.arguments.size()) {
+                Logger::Log(*log_, "An audio option is missing its file path.");
+                return false;
+            }
+            auto& path = argument == L"--bgm" ? bgmPath : sePath;
+            path = context.arguments[index];
+        }
+    }
+
+    loadResult_ = alarm_.Load(sePath);
+    if (const auto* format = alarm_.GetFormat()) {
+        Logger::Log(*log_, std::format("Sound decoded: {} Hz, {} ch, {} bits per sample.",
+            format->nSamplesPerSec, format->nChannels, format->wBitsPerSample));
+    } else {
+        Logger::Log(*log_, std::format("Sound load failed (0x{:08X}).", static_cast<unsigned>(loadResult_)));
+    }
+    if (!bgmPath.empty()) {
+        bgmLoadResult_ = bgm_.Load(bgmPath);
+        if (FAILED(bgmLoadResult_)) {
+            Logger::Log(*log_, std::format("BGM load failed (0x{:08X}).", static_cast<unsigned>(bgmLoadResult_)));
+        } else {
+            Logger::Log(*log_, "BGM decoded.");
+            if (audio_) {
+                const HRESULT result = bgm_.PlayBgm(audio_);
+                if (FAILED(result)) {
+                    Logger::Log(*log_, std::format("BGM playback failed (0x{:08X}).", static_cast<unsigned>(result)));
+                }
+            }
+        }
+    }
+#ifdef USE_IMGUI
+    soundDirectory_ = context.resourceDirectory;
+    RefreshSoundFiles();
+    selectedSe_ = sePath;
+    selectedBgm_ = bgmPath;
+    if (SUCCEEDED(loadResult_)) { loadedSe_ = sePath; }
+    if (SUCCEEDED(bgmLoadResult_)) { loadedBgm_ = bgmPath; }
+#endif
+    PlaySe();
+    return true;
+}
+
+void GameScene::PlaySe()
+{
+    if (!audio_ || !alarm_.GetFormat()) { return; }
+    const HRESULT result = alarm_.PlaySe(audio_);
+    if (FAILED(result)) {
+        Logger::Log(*log_, std::format("SE playback failed (0x{:08X}).", static_cast<unsigned>(result)));
+    }
+}
+
+bool GameScene::DidSmokeTestPass() const
+{
+    return SUCCEEDED(loadResult_) && SUCCEEDED(bgmLoadResult_);
+}
+
+void GameScene::InitializeModels()
 {
     modelManager_ = ModelManager::GetInstance();
     modelManager_->Initialize(directXBase_);
@@ -106,13 +176,13 @@ void DemoScene::InitializeModels()
     debugCamera_.SetTranslation(defaultCamera.GetTranslate());
 }
 
-void DemoScene::InitializeSprites()
+void GameScene::InitializeSprites()
 {
     CreateSprite(spriteTextures[0], {16.0f, 16.0f}, {160.0f, 160.0f});
     CreateSprite(spriteTextures[1], {192.0f, 16.0f}, {96.0f, 96.0f});
 }
 
-Sprite& DemoScene::CreateSprite(const std::string& texture, const Vector2& position, const Vector2& size)
+Sprite& GameScene::CreateSprite(const std::string& texture, const Vector2& position, const Vector2& size)
 {
     auto sprite = std::make_unique<Sprite>();
     if (texture.empty()) { sprite->Initialize(spriteBase_); }
@@ -124,7 +194,7 @@ Sprite& DemoScene::CreateSprite(const std::string& texture, const Vector2& posit
     return result;
 }
 
-Sprite& DemoScene::DuplicateSprite(std::size_t index)
+Sprite& GameScene::DuplicateSprite(std::size_t index)
 {
     const Sprite& source = *sprites_.at(index);
     Sprite& copy = CreateSprite(source.GetTextureFilePath(),
@@ -142,8 +212,13 @@ Sprite& DemoScene::DuplicateSprite(std::size_t index)
     return copy;
 }
 
-void DemoScene::UpdateCameraInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown)
+void GameScene::UpdateInput(const Input& input, long mouseX, long mouseY, bool isLeftMouseDown)
 {
+    if (input.TriggerKey(DIK_ESCAPE)) {
+        ReturnToTitle();
+        return;
+    }
+    if (input.TriggerKey(DIK_SPACE)) { PlaySe(); }
     // デバッグカメラのON/OFF切り替え
     if (input.TriggerKey(DIK_F1))
     {
@@ -163,7 +238,12 @@ void DemoScene::UpdateCameraInput(const Input& input, long mouseX, long mouseY, 
     }
 }
 
-void DemoScene::Update(float deltaTime)
+void GameScene::ReturnToTitle()
+{
+    RequestSceneChange(SceneNames::Title);
+}
+
+void GameScene::Update(float deltaTime)
 {
     // オブジェクトとParticleの更新前に、選択中のカメラの行列を確定する。
     auto& activeCamera = cameras_.GetActiveCamera();
@@ -202,7 +282,7 @@ void DemoScene::Update(float deltaTime)
     }
 }
 
-void DemoScene::Draw()
+void GameScene::Draw()
 {
     planeObject_.SetCommonRenderState(static_cast<BlendMode>(currentBlendMode_));
     terrainObject_.Draw();
@@ -220,8 +300,12 @@ void DemoScene::Draw()
     }
 }
 
-void DemoScene::Finalize()
+void GameScene::Finalize()
 {
+    alarm_.Unload();
+    bgm_.Unload();
+    audio_ = nullptr;
+    log_ = nullptr;
     particleSystem_.Finalize();
     sprites_.clear();
     deferredSmokeSprite_.reset();
@@ -231,5 +315,5 @@ void DemoScene::Finalize()
     terrainObject_.Finalize();
     sphereAppearance_.Finalize();
     ModelManager::Finalize();
-    // 残りのComPtrはDemoSceneの破棄時に解放される。
+    // 残りのComPtrはGameSceneの破棄時に解放される。
 }

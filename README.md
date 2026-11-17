@@ -10,8 +10,8 @@
 
 | 場所 | 内容 |
 | --- | --- |
-| `Source/App` | 起動・フレーム進行（main.cpp）とサンプルシーン（DemoScene） |
-| `Source/CG3` | CG3 評価課題1のデモ、ブラックホール Editor、Effekseer 描画 |
+| `Source/App` | 起動、タイトル（TitleScene）、ゲームプレイ（GameScene） |
+| `Source/CG3` | `CG3.vcxproj` でビルドする評価課題1。入口は `Cg3DemoMain.cpp` |
 | `Source/Engine/Core` | ウィンドウ、ログ、文字列処理 |
 | `Source/Engine/Graphics` | DirectX基盤と描画リソース |
 | `Source/Engine/Input` | 入力処理 |
@@ -52,7 +52,17 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 3. 変更をコミットしたらmainへマージし、競合は両方の機能が残るように解消します。
 4. Debug・Development・Releaseをビルドし、実行時に使うHLSLも確認してからmainをpushします。
 
-`Source/App/main.cpp` の `WinMain` は `Game` を作って `Run()` を呼びます。エンジン層の `Source/Engine/Core/FPFramework` はウィンドウ、DirectX、入力、ImGui、共有スプライト設定、音声デバイスとフレームループを管理します。アプリ層の `Game` は `FPFramework` を継承し、`Initialize()`・`Update()`・`Draw()`・`Finalize()` をオーバーライドして、`DemoScene` と BGM・SE を扱います。ImGuiのシーン設定とスモークテストはそれぞれ`DemoSceneImGui.cpp`と`DemoSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+`Source/App/main.cpp` の `WinMain` は `Game` を作って `Run()` を呼びます。エンジン層の `Source/Engine/Core/FPFramework` はウィンドウ、DirectX、入力、ImGui、共有スプライト設定、音声デバイスとフレームループを管理します。アプリ層の `Game` は `FPFramework` を継承し、起動オプションの解釈とスモークテストの終了判定を担当します。ImGuiのシーン設定とスモークテストはそれぞれ`GameSceneImGui.cpp`と`GameSceneSmoke.cpp`にあります。パーティクルの発生・更新・描画は`Source/Engine/Graphics/ParticleSystem`が担当します。シェーダーは`Resources/Shaders`を使います。`Archive`内の旧コピーを編集しても実行結果には反映されません。
+
+### アプリとシーン
+
+`FKAlpha.vcxproj` は GE3 の `Source/App/main.cpp` を入口とし、最初に `TitleScene` を表示します。Enter で `GameScene` に進み、Esc でタイトルに戻ります。`TitleScene` はタイトル用の 2D スプライトを描画し、`GameScene` はゲームプレイのスプライト、3D オブジェクト、パーティクル、BGM・SE と ImGui の操作を担当します。
+
+各シーンは `RequestSceneChange()` に `TITLE` や `GAMEPLAY` などの名前を渡して、切り替えを予約します。`SceneManager::ChangeScene()` はエンジン層の `AbstractSceneFactory` を通じて、アプリ層の `SceneFactory` に生成を依頼します。シーン名とクラスの対応は `SceneFactory.cpp` にあります。
+
+`FPFramework` がファクトリーを所有し、Singleton の `SceneManager` がそのファクトリーを借りて使います。`SceneManager` は実行中と予約中のシーンを `std::unique_ptr<BaseScene>` で所有します。次のフレームの更新前に、旧シーンの終了・破棄と新シーンの初期化を行います。
+
+`CG3.vcxproj` は `Source/CG3/Cg3DemoMain.cpp` を入口とする評価課題1の実行プロジェクトです。`Archive` には旧版の資料や提出物を保管しています。
 
 ### 音声ファイルの再生
 
@@ -64,6 +74,8 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 
 Debug x64 の ImGui では、右上の「サウンド」パネルから BGM と SE をそれぞれ選んで再生・停止できます。音源を追加するには、プロジェクトの `Resources/Audio` に MP3 を置いてビルドします。実行フォルダーの `Resources` に直接置いた場合は「音源一覧を更新」を押すと一覧に反映されます。
 
+BGM と SE の「低音ブースト」は個別に 0〜12 dB で設定でき、XAudio2 の FXEQ で 80 Hz 付近を強調します。初期値は 0 dB で、再生中のボイスにも反映します。イコライザーを適用できない出力環境では、元の音で再生します。
+
 ```powershell
 .\FKAlpha.exe --bgm 'C:\Music\bgm.mp3' --sound 'C:\Music\jump.mp3'
 ```
@@ -74,7 +86,7 @@ Debug の ImGui で「パーティクルグループ」から「Plane のテク�
 
 粒子はグループごとに連続したメモリへ確保し、寿命を迎えた要素は末尾と入れ替えて削除します。`ParticleSystem::Update()` はフレーム間の経過時間を秒で受け取り、発生間隔・移動・寿命に使います。
 
-起動と描画の確認には`FKAlpha.exe --smoke-test`も使えます。3フレーム描画後に通常の終了処理で終了し、実行ファイル横の`Logs`へ確認結果を残します。このモードでは確認中の音声再生を省きます。
+起動と描画の確認には`FKAlpha.exe --smoke-test`も使えます。タイトルを1フレーム、ゲームプレイを3フレーム描画し、タイトルに戻って1フレーム描画してから終了します。確認結果は実行ファイル横の`Logs`に残ります。このモードでは確認中の音声再生を省きます。
 
 ## GitHub Actionsの自動ビルド
 

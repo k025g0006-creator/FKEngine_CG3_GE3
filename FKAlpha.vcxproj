@@ -149,8 +149,18 @@
     <ClCompile Include="Source\Engine\Debug\D3DResourceLeakChecker.cpp" />
     <ClCompile Include="Source\Engine\Input\Input.cpp" />
     <ClCompile Include="Source\Engine\Core\Logger.cpp" />
-    <ClInclude Include="Source\App\DemoScene.h" />
-    <ClCompile Include="Source\App\DemoScene.cpp">
+    <ClInclude Include="Source\App\GameScene.h" />
+    <ClInclude Include="Source\Engine\Core\BaseScene.h" />
+    <ClInclude Include="Source\Engine\Core\AbstractSceneFactory.h" />
+    <ClCompile Include="Source\Engine\Core\BaseScene.cpp" />
+    <ClInclude Include="Source\Engine\Core\SceneManager.h" />
+    <ClCompile Include="Source\Engine\Core\SceneManager.cpp" />
+    <ClInclude Include="Source\App\SceneFactory.h" />
+    <ClCompile Include="Source\App\SceneFactory.cpp" />
+    <ClInclude Include="Source\App\SceneNames.h" />
+    <ClInclude Include="Source\App\TitleScene.h" />
+    <ClCompile Include="Source\App\TitleScene.cpp" />
+    <ClCompile Include="Source\App\GameScene.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
     </ClCompile>
@@ -159,8 +169,8 @@
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">MaxSpeed</Optimization>
       <WholeProgramOptimization Condition="'$(Configuration)|$(Platform)'=='Development|x64'">true</WholeProgramOptimization>
     </ClCompile>
-    <ClCompile Include="Source\App\DemoSceneImGui.cpp" />
-    <ClCompile Include="Source\App\DemoSceneSmoke.cpp" />
+    <ClCompile Include="Source\App\GameSceneImGui.cpp" />
+    <ClCompile Include="Source\App\GameSceneSmoke.cpp" />
     <ClInclude Include="Source\App\Game.h" />
     <ClCompile Include="Source\App\main.cpp" />
     <ClCompile Include="Source\App\Game.cpp">
@@ -268,6 +278,7 @@
     <None Include="Resources\plane.mtl" />
     <None Include="Resources\plane.obj" />
     <None Include="Resources\uvChecker.png" />
+    <None Include="Resources\Title.png" />
     <None Include="Config\BuildSettings.props" />
     <None Include="Config\exclusion.dic" />
     <None Include="Config\imgui.ini" />

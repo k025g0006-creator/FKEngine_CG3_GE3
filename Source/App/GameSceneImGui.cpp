@@ -1,4 +1,4 @@
-#include "DemoScene.h"
+#include "GameScene.h"
 
 #ifdef USE_IMGUI
 #include "TextureManager.h"
@@ -11,9 +11,92 @@
 namespace
 {
 const char* const kBlendModeNames[] = { "なし", "通常", "加算", "減算", "乗算", "スクリーン" };
+
+std::vector<std::filesystem::path> FindSoundFiles(const std::filesystem::path& directory)
+{
+    std::vector<std::filesystem::path> files;
+    std::error_code error;
+    const std::filesystem::recursive_directory_iterator end;
+    for (std::filesystem::recursive_directory_iterator it(directory,
+        std::filesystem::directory_options::skip_permission_denied, error); !error && it != end; it.increment(error))
+    {
+        if (!it->is_regular_file(error))
+        {
+            continue;
+        }
+        const auto extension = it->path().extension();
+        if (_wcsicmp(extension.c_str(), L".mp3") == 0 || _wcsicmp(extension.c_str(), L".wav") == 0) 
+        {
+            files.push_back(it->path());
+        }
+    }
+    std::ranges::sort(files);
+    return files;
 }
 
-void DemoScene::DrawSettings()
+void DrawSoundControls(const char* label, Sound& sound, IXAudio2* audio,
+    const std::vector<std::filesystem::path>& files, const std::filesystem::path& directory,
+    std::filesystem::path& selected, std::filesystem::path& loaded, bool loop, std::string& status)
+{
+    ImGui::PushID(label);
+    ImGui::SeparatorText(label);
+    const auto preview = selected.filename().u8string();
+    if (ImGui::BeginCombo("音源", selected.empty() ? "音源を選択" : reinterpret_cast<const char*>(preview.c_str())))
+    {
+        for (const auto& path : files) 
+        {
+            const auto name = path.lexically_relative(directory).generic_u8string();
+            if (ImGui::Selectable(reinterpret_cast<const char*>(name.c_str()), path == selected)) { selected = path; }
+        }
+        ImGui::EndCombo();
+    }
+    float bassBoost = sound.GetBassBoostDb(loop);
+    if (ImGui::SliderFloat("低音ブースト", &bassBoost, 0.0f, Sound::kMaxBassBoostDb, "%.1f dB",
+        ImGuiSliderFlags_AlwaysClamp))
+    {
+        const HRESULT result = sound.SetBassBoostDb(bassBoost, loop);
+        status = SUCCEEDED(result) ? "低音ブーストを設定しました"
+            : std::format("低音ブーストを設定できませんでした (0x{:08X})", static_cast<unsigned>(result));
+    }
+    ImGui::BeginDisabled(!audio || selected.empty());
+    if (ImGui::Button(loop ? "ループ再生" : "再生")) 
+    {
+        HRESULT result = S_OK;
+        if (selected != loaded) 
+        {
+            result = sound.Load(selected);
+            if (SUCCEEDED(result))
+            {
+                loaded = selected;
+            }
+        }
+        if (SUCCEEDED(result))
+        { 
+            result = loop ? sound.PlayBgm(audio) : sound.PlaySe(audio);
+        }
+        if (result == S_FALSE)
+        {
+            status = "低音ブーストを適用できなかったため、元の音で再生しました";
+        }
+        else
+        {
+            status = SUCCEEDED(result) ? "再生しました"
+                : std::format("再生できませんでした (0x{:08X})", static_cast<unsigned>(result));
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("停止")) 
+    {
+        sound.Stop();
+        status = "停止しました";
+    }
+    ImGui::TextUnformatted(status.c_str());
+    ImGui::PopID();
+}
+}
+
+void GameScene::DrawSettings()
 {
     ImGui::Begin("設定");
     ImGui::ColorEdit4("色", colorArray_);
@@ -33,9 +116,29 @@ void DemoScene::DrawSettings()
     ImGui::SliderAngle("Z軸回転", &transform.rotate.z);
     DrawCameraSettings();
     ImGui::End();
+    DrawSoundSettings();
 }
 
-void DemoScene::DrawParticleSettings()
+void GameScene::RefreshSoundFiles()
+{
+    soundFiles_ = FindSoundFiles(soundDirectory_);
+}
+
+void GameScene::DrawSoundSettings()
+{
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x - 16.0f, 16.0f),
+        ImGuiCond_FirstUseEver, ImVec2(1.0f, 0.0f));
+    if (ImGui::Begin("サウンド", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (ImGui::Button("音源一覧を更新")) { RefreshSoundFiles(); }
+        DrawSoundControls("BGM", bgm_, audio_, soundFiles_, soundDirectory_,
+            selectedBgm_, loadedBgm_, true, bgmStatus_);
+        DrawSoundControls("SE", alarm_, audio_, soundFiles_, soundDirectory_,
+            selectedSe_, loadedSe_, false, seStatus_);
+    }
+    ImGui::End();
+}
+
+void GameScene::DrawParticleSettings()
 {
     auto& settings = particleSystem_.GetSettings();
     ImGui::SeparatorText("パーティクル");
@@ -63,7 +166,7 @@ void DemoScene::DrawParticleSettings()
     ImGui::Checkbox("パーティクルのインスタンシング", &useInstancing_);
 }
 
-void DemoScene::DrawModelSettings()
+void GameScene::DrawModelSettings()
 {
     auto& transform = sphereObject_.GetTransform();
     ImGui::Separator();
@@ -86,7 +189,7 @@ void DemoScene::DrawModelSettings()
 
 }
 
-void DemoScene::DrawLightingSettings()
+void GameScene::DrawLightingSettings()
 {
     auto* materialData = &sphereAppearance_.GetMaterial();
     auto* directionalLightData = &sphereObject_.GetDirectionalLight();
@@ -166,7 +269,7 @@ void DemoScene::DrawLightingSettings()
     ImGui::SliderFloat("平行光の明るさ", &directionalLightData->intensity, 0.0f, 3.0f);
 }
 
-void DemoScene::DrawSpriteSettings()
+void GameScene::DrawSpriteSettings()
 {
     ImGui::Separator();
     ImGui::Text("スプライト");
@@ -307,7 +410,7 @@ void DemoScene::DrawSpriteSettings()
     }
 }
 
-void DemoScene::DrawCameraSettings()
+void GameScene::DrawCameraSettings()
 {
     ImGui::Separator();
     ImGui::Text("カメラ設定（F2で切り替え）");

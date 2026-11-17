@@ -1,8 +1,10 @@
 #pragma once
 
+#include "AbstractSceneFactory.h"
 #include "D3DResourceLeakChecker.h"
 #include "DirectXBase.h"
 #include "Input.h"
+#include "SceneManager.h"
 #include "SRVInformationManager.h"
 #include "SpriteBase.h"
 #include "WinApp.h"
@@ -14,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <vector>
 
 class TextureManager;
 
@@ -26,12 +29,15 @@ public:
 protected:
     virtual bool Initialize();
     virtual bool Update(float deltaTime);
-    virtual void Draw() = 0;
+    virtual void Draw();
     virtual void Finalize();
     virtual void OnFrameComplete() {}
     virtual bool IsEndRequest() const { return endRequested_; }
     void RequestEnd(int exitCode = 0) { endRequested_ = true; exitCode_ = exitCode; }
     static std::filesystem::path GetExecutableDirectory();
+    bool StartScenes(std::unique_ptr<AbstractSceneFactory> factory, std::string_view initialScene,
+        bool smokeTest, std::vector<std::wstring> arguments);
+    bool IsSceneSmokeTest() const { return smokeTest_; }
 
 private:
     // COM はエンジンの各リソースが破棄された後に終了する。
@@ -50,12 +56,18 @@ protected:
     DIMOUSESTATE mouseState_{};
     SRVInformationManager srvManager_;
     TextureManager* textures_ = nullptr;
+    SceneManager& sceneManager_ = SceneManager::GetInstance();
     std::optional<SpriteBase> spriteBase_;
     Microsoft::WRL::ComPtr<IXAudio2> audio_;
     bool audioReady_ = false;
     std::array<float, 4> clearColor_{0.1f, 0.25f, 0.5f, 1.0f};
 
 private:
+    SceneContext GetSceneContext();
+    std::unique_ptr<AbstractSceneFactory> sceneFactory_;
+    std::filesystem::path resourceDirectory_;
+    std::vector<std::wstring> sceneArguments_;
+    bool smokeTest_ = false;
     WinApp window_;
     Microsoft::WRL::ComPtr<IDirectInput8> directInput_;
     Microsoft::WRL::ComPtr<IDirectInputDevice8> mouse_;

@@ -1,4 +1,4 @@
-#include "DemoScene.h"
+#include "GameScene.h"
 #include "Input.h"
 #include "Logger.h"
 #include "ModelManager.h"
@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <utility>
 
-void DemoScene::CheckModels(std::ostream& logStream)
+void GameScene::CheckModels(std::ostream& logStream)
 {
     auto requireObject = [](bool valid, const char* message) {
         if (!valid) { throw std::runtime_error(message); }
@@ -102,7 +102,7 @@ void DemoScene::CheckModels(std::ostream& logStream)
     Logger::Log(logStream, "Object3D smoke: independent models/materials, transforms/normals, camera and failed-init recovery passed.");
 }
 
-void DemoScene::CheckTextures(std::ostream& logStream)
+void GameScene::CheckTextures(std::ostream& logStream)
 {
     const size_t count = textureManager_->GetTextureCount();
     const auto originalHandle = textureManager_->GetSrvHandleGPU("Resources/uvChecker.png");
@@ -119,7 +119,7 @@ void DemoScene::CheckTextures(std::ostream& logStream)
     }
     Logger::Log(logStream, "Texture smoke: duplicate paths shared; missing input rejected.");
     bool rejectedInvalidIndex = false;
-    try { (void)textureManager_->GetMetadata(static_cast<uint32_t>(count)); }
+    try { (void)textureManager_->GetMetadata(UINT32_MAX); }
     catch (const std::out_of_range&) { rejectedInvalidIndex = true; }
     if (!rejectedInvalidIndex) {
         Logger::Log(logStream, "Out-of-range texture metadata index was accepted.");
@@ -146,7 +146,7 @@ void DemoScene::CheckTextures(std::ostream& logStream)
     } catch (const std::out_of_range&) {}
 }
 
-void DemoScene::CheckDebugCamera(std::ostream& logStream)
+void GameScene::CheckDebugCamera(std::ostream& logStream)
 {
     DebugCamera camera;
     camera.Initialize(WinApp::kClientWidth, WinApp::kClientHeight);
@@ -165,7 +165,7 @@ void DemoScene::CheckDebugCamera(std::ostream& logStream)
     Logger::Log(logStream, "Debug camera smoke: 10000 rotations preserve orthonormal axes.");
 }
 
-void DemoScene::CheckSprites(std::ostream& logStream)
+void GameScene::CheckSprites(std::ostream& logStream)
 {
     const uint32_t index = textureManager_->GetTextureIndexByFilePath(spriteTextures[0]);
     Sprite indexedProbe;
@@ -241,7 +241,7 @@ void DemoScene::CheckSprites(std::ostream& logStream)
     Logger::Log(logStream, "Sprite smoke: index initialization matches GetDesc; omitted index accepted.");
 }
 
-void DemoScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
+void GameScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
 {
     // plane単体とParticleの両描画経路、およびデバッグカメラ経路を実行する。
     // 同じ配置で、別モデルへの差し替えもフレームをまたいで描画する。
@@ -360,5 +360,6 @@ void DemoScene::PrepareSmokeFrame(uint32_t frame, std::ostream& logStream)
         deferredSmokeSprite_->SetTextureIndex(UINT32_MAX);
         Logger::Log(logStream, "Sprite smoke: deferred image detached safely.");
         Logger::Log(logStream, "Sprite smoke: recreated after empty, count=1.");
+        ReturnToTitle();
     }
 }

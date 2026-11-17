@@ -5,6 +5,8 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 #include <wrl.h>
+#include <xapofx.h>
+#include <cmath>
 #include <cstring>
 #include <new>
 #include <utility>
@@ -15,6 +17,41 @@ using Microsoft::WRL::ComPtr;
 using WaveFormat = std::unique_ptr<WAVEFORMATEX, decltype(&CoTaskMemFree)>;
 constexpr auto kAllStreams = static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS);
 constexpr auto kFirstAudioStream = static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM);
+constexpr float kBassCenterHz = 80.0f;
+
+HRESULT ApplyBassBoost(IXAudio2SourceVoice& voice, UINT32 channels, float gainDb, bool& hasEffect)
+{
+    if (gainDb == 0.0f)
+    {
+        if (!hasEffect) { return S_OK; }
+        const HRESULT result = voice.SetEffectChain(nullptr);
+        if (SUCCEEDED(result)) { hasEffect = false; }
+        return result;
+    }
+
+    const bool attach = !hasEffect;
+    if (attach)
+    {
+        ComPtr<IUnknown> effect;
+        HRESULT result = CreateFX(__uuidof(FXEQ), effect.GetAddressOf());
+        if (FAILED(result)) { return result; }
+        XAUDIO2_EFFECT_DESCRIPTOR descriptor{effect.Get(), TRUE, channels};
+        const XAUDIO2_EFFECT_CHAIN chain{1, &descriptor};
+        result = voice.SetEffectChain(&chain);
+        if (FAILED(result)) { return result; }
+        hasEffect = true;
+    }
+
+    const FXEQ_PARAMETERS parameters{
+        kBassCenterHz, std::pow(10.0f, gainDb / 20.0f), FXEQ_DEFAULT_BANDWIDTH,
+        FXEQ_DEFAULT_FREQUENCY_CENTER_1, FXEQ_DEFAULT_GAIN, FXEQ_DEFAULT_BANDWIDTH,
+        FXEQ_DEFAULT_FREQUENCY_CENTER_2, FXEQ_DEFAULT_GAIN, FXEQ_DEFAULT_BANDWIDTH,
+        FXEQ_DEFAULT_FREQUENCY_CENTER_3, FXEQ_DEFAULT_GAIN, FXEQ_DEFAULT_BANDWIDTH
+    };
+    const HRESULT result = voice.SetEffectParameters(0, &parameters, sizeof(parameters));
+    if (FAILED(result) && attach && SUCCEEDED(voice.SetEffectChain(nullptr))) { hasEffect = false; }
+    return result;
+}
 
 HRESULT ConfigureAudioStream(IMFSourceReader& reader)
 {
@@ -157,15 +194,33 @@ HRESULT Sound::Play(IXAudio2* xAudio2, bool loop)
 
 HRESULT Sound::PlayBgm(IXAudio2* xAudio2)
 {
-    return StartPlayback(xAudio2, true, bgmVoice_);
+    return StartPlayback(xAudio2, true, bgm_);
 }
 
 HRESULT Sound::PlaySe(IXAudio2* xAudio2)
 {
-    return StartPlayback(xAudio2, false, seVoice_);
+    return StartPlayback(xAudio2, false, se_);
 }
 
-HRESULT Sound::StartPlayback(IXAudio2* xAudio2, bool loop, Voice& voice)
+HRESULT Sound::SetBassBoostDb(float gainDb, bool loop)
+{
+    if (!std::isfinite(gainDb) || gainDb < 0.0f || gainDb > kMaxBassBoostDb) { return E_INVALIDARG; }
+    auto& playback = loop ? bgm_ : se_;
+    if (playback.voice)
+    {
+        const HRESULT result = ApplyBassBoost(*playback.voice, format_->nChannels, gainDb, playback.hasBassEffect);
+        if (FAILED(result)) { return result; }
+    }
+    playback.bassBoostDb = gainDb;
+    return S_OK;
+}
+
+float Sound::GetBassBoostDb(bool loop) const
+{
+    return (loop ? bgm_ : se_).bassBoostDb;
+}
+
+HRESULT Sound::StartPlayback(IXAudio2* xAudio2, bool loop, Playback& playback)
 {
     if (!xAudio2) { return E_POINTER; }
     if (pcm_.empty() || !format_) { return MF_E_INVALIDREQUEST; }
@@ -174,6 +229,9 @@ HRESULT Sound::StartPlayback(IXAudio2* xAudio2, bool loop, Voice& voice)
     HRESULT result = xAudio2->CreateSourceVoice(&createdVoice, format_.get());
     if (FAILED(result)) { return result; }
     Voice nextVoice{createdVoice};
+    bool hasBassEffect = false;
+    const HRESULT bassResult = ApplyBassBoost(*nextVoice, format_->nChannels, playback.bassBoostDb, hasBassEffect);
+    if (FAILED(bassResult) && hasBassEffect) { return bassResult; }
 
     XAUDIO2_BUFFER buffer{};
     buffer.pAudioData = pcm_.data();
@@ -182,20 +240,26 @@ HRESULT Sound::StartPlayback(IXAudio2* xAudio2, bool loop, Voice& voice)
     buffer.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
     result = nextVoice->SubmitSourceBuffer(&buffer);
     if (FAILED(result)) { return result; }
-    voice.reset();
     result = nextVoice->Start();
-    if (SUCCEEDED(result)) { voice = std::move(nextVoice); }
+    if (SUCCEEDED(result))
+    {
+        playback.voice = std::move(nextVoice);
+        playback.hasBassEffect = hasBassEffect;
+        return FAILED(bassResult) ? S_FALSE : S_OK;
+    }
     return result;
 }
 
 void Sound::StopBgm()
 {
-    bgmVoice_.reset();
+    bgm_.voice.reset();
+    bgm_.hasBassEffect = false;
 }
 
 void Sound::StopSe()
 {
-    seVoice_.reset();
+    se_.voice.reset();
+    se_.hasBassEffect = false;
 }
 
 void Sound::Stop()

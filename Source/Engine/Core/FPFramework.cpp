@@ -1,4 +1,5 @@
 #include "FPFramework.h"
+#include "BaseScene.h"
 
 #include "Logger.h"
 #include "TextureManager.h"
@@ -8,6 +9,8 @@
 #include <chrono>
 #include <exception>
 #include <format>
+#include <stdexcept>
+#include <utility>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -146,11 +149,37 @@ bool FPFramework::Initialize()
     return true;
 }
 
-bool FPFramework::Update(float)
+bool FPFramework::StartScenes(std::unique_ptr<AbstractSceneFactory> factory, std::string_view initialScene,
+    bool smokeTest, std::vector<std::wstring> arguments)
+{
+    if (!factory) { throw std::invalid_argument("A scene factory is required."); }
+    smokeTest_ = smokeTest;
+    sceneArguments_ = std::move(arguments);
+    resourceDirectory_ = GetExecutableDirectory() / "Resources";
+    sceneFactory_ = std::move(factory);
+    sceneManager_.SetSceneFactory(*sceneFactory_);
+    sceneManager_.ChangeScene(initialScene);
+    if (sceneManager_.ApplyPendingScene(GetSceneContext(), *textures_)) { return true; }
+    RequestEnd(2);
+    return false;
+}
+
+SceneContext FPFramework::GetSceneContext()
+{
+    return {directX_, srvManager_, *spriteBase_, audioReady_ ? audio_.Get() : nullptr,
+        smokeTest_, log_, resourceDirectory_, sceneArguments_};
+}
+
+bool FPFramework::Update(float deltaTime)
 {
     if (window_.ProcessMessage()) 
     {
         RequestEnd();
+        return false;
+    }
+    const auto context = GetSceneContext();
+    if (!sceneManager_.ApplyPendingScene(context, *textures_)) {
+        RequestEnd(2);
         return false;
     }
     input_.Update();
@@ -160,11 +189,20 @@ bool FPFramework::Update(float)
 #ifdef USE_IMGUI
     imguiManager_.BeginFrame();
 #endif
+    sceneManager_.Update(context, deltaTime, input_, mouseState_.lX, mouseState_.lY,
+        (mouseState_.rgbButtons[0] & 0x80) != 0);
     return true;
+}
+
+void FPFramework::Draw()
+{
+    sceneManager_.Draw();
 }
 
 void FPFramework::Finalize()
 {
+    sceneManager_.Finalize();
+    sceneFactory_.reset();
     if (masterVoice_) 
     {
         masterVoice_->DestroyVoice();
@@ -226,6 +264,7 @@ int FPFramework::Run()
 #endif
             directX_.PostDraw();
             textures_->ReleaseCompletedResources();
+            sceneManager_.OnFrameRendered();
             OnFrameComplete();
         }
     } catch (const std::exception& error)

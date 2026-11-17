@@ -84,10 +84,40 @@
     <ClCompile Include="Source\Engine\Core\Logger.cpp">
       <Filter>Source\Engine\Core</Filter>
     </ClCompile>
-    <ClInclude Include="Source\App\DemoScene.h">
+    <ClInclude Include="Source\App\GameScene.h">
       <Filter>Source\App</Filter>
     </ClInclude>
-    <ClCompile Include="Source\App\DemoScene.cpp">
+    <ClInclude Include="Source\Engine\Core\BaseScene.h">
+      <Filter>Source\Engine\Core</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Engine\Core\AbstractSceneFactory.h">
+      <Filter>Source\Engine\Core</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\Core\BaseScene.cpp">
+      <Filter>Source\Engine\Core</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\Engine\Core\SceneManager.h">
+      <Filter>Source\Engine\Core</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\Engine\Core\SceneManager.cpp">
+      <Filter>Source\Engine\Core</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\App\SceneFactory.h">
+      <Filter>Source\App</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\App\SceneFactory.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
+    <ClInclude Include="Source\App\SceneNames.h">
+      <Filter>Source\App</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\App\TitleScene.h">
+      <Filter>Source\App</Filter>
+    </ClInclude>
+    <ClCompile Include="Source\App\TitleScene.cpp">
+      <Filter>Source\App</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\App\GameScene.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
     <ClInclude Include="Source\Engine\Graphics\ParticleSystem.h">
@@ -96,10 +126,10 @@
     <ClCompile Include="Source\Engine\Graphics\ParticleSystem.cpp">
       <Filter>Source\Engine\Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="Source\App\DemoSceneImGui.cpp">
+    <ClCompile Include="Source\App\GameSceneImGui.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
-    <ClCompile Include="Source\App\DemoSceneSmoke.cpp">
+    <ClCompile Include="Source\App\GameSceneSmoke.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
     <ClInclude Include="Source\App\Game.h">
@@ -274,6 +304,9 @@
       <Filter>Resources</Filter>
     </None>
     <None Include="Resources\uvChecker.png">
+      <Filter>Resources</Filter>
+    </None>
+    <None Include="Resources\Title.png">
       <Filter>Resources</Filter>
     </None>
     <None Include="Config\BuildSettings.props">

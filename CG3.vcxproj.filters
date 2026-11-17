@@ -15,7 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Source\CG3\main.cpp"><Filter>ソース ファイル</Filter></ClCompile>
+    <ClCompile Include="Source\CG3\Cg3DemoMain.cpp"><Filter>ソース ファイル</Filter></ClCompile>
     <ClCompile Include="Source\CG3\BlackHoleEffect.cpp"><Filter>ソース ファイル</Filter></ClCompile>
     <ClCompile Include="Source\CG3\DebugCamera.cpp"><Filter>ソース ファイル</Filter></ClCompile>
     <ClCompile Include="Source\CG3\EffekseerSceneEffect.cpp"><Filter>ソース ファイル</Filter></ClCompile>

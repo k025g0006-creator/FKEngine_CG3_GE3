@@ -2,6 +2,7 @@
 #include <xaudio2.h>
 #include <wrl.h>
 #include <cstdint>
+#include <memory>
 #include <string>
 
 // チャンクヘッダ
@@ -25,13 +26,16 @@ struct FormatChunk
 	WAVEFORMATEX fmt;   // 波形フォーマット
 };
 
+struct AudioVoiceDeleter
+{
+	void operator()(IXAudio2Voice* voice) const { voice->DestroyVoice(); }
+};
+
 class Sound
 {
 public:
 	Sound() = default;
-	~Sound();
-
-	// コピー禁止（バッファの二重解放を防ぐ）
+	// 音声データと再生ボイスはこのインスタンスが所有する。
 	Sound(const Sound&) = delete;
 	Sound& operator=(const Sound&) = delete;
 
@@ -53,11 +57,12 @@ private:
 	WAVEFORMATEX wfex_{};
 
 	// バッファの先頭アドレス
-	BYTE* pBuffer_ = nullptr;
+	std::unique_ptr<BYTE[]> buffer_;
 
 	// バッファのサイズ
 	unsigned int bufferSize_ = 0;
 
 	// 再生に使用しているSourceVoice（Stop用に保持）
-	IXAudio2SourceVoice* pSourceVoice_ = nullptr;
+	// 逆順に破棄されるので、ボイスはバッファより先に解放される。
+	std::unique_ptr<IXAudio2SourceVoice, AudioVoiceDeleter> sourceVoice_;
 };

@@ -1,9 +1,12 @@
 #include "BaseScene.h"
+#include "Logger.h"
 #include "SceneManager.h"
-#include <stdexcept>
 
-void BaseScene::RequestSceneChange(std::string_view sceneName)
+bool BaseScene::RequestSceneChange(SceneId sceneId)
 {
-    if (!sceneManager_) { throw std::logic_error("The scene is not attached to a SceneManager."); }
-    sceneManager_->ChangeScene(sceneName);
+    if (!sceneManager_) {
+        Logger::Log("Scene change skipped: the scene is not attached to a SceneManager.");
+        return false;
+    }
+    return sceneManager_->ChangeScene(sceneId);
 }

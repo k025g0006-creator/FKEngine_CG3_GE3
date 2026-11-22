@@ -1,27 +1,46 @@
 #include "SceneManager.h"
 #include "AbstractSceneFactory.h"
 #include "BaseScene.h"
+#include "Logger.h"
 #include "TextureManager.h"
-#include <stdexcept>
-#include <string>
+#include <exception>
+#include <format>
 #include <utility>
 
-SceneManager& SceneManager::GetInstance()
+SceneManager::SceneManager(std::ostream& log) : log_(log)
 {
-    static SceneManager instance;
-    return instance;
 }
 
 SceneManager::~SceneManager() = default;
 
-void SceneManager::ChangeScene(std::string_view sceneName)
+void SceneManager::SetSceneFactory(std::unique_ptr<AbstractSceneFactory> factory)
 {
-    if (!sceneFactory_) { throw std::logic_error("A scene factory is required."); }
-    auto nextScene = sceneFactory_->CreateScene(sceneName);
+    sceneFactory_ = std::move(factory);
+}
+
+bool SceneManager::ChangeScene(SceneId sceneId)
+{
+    if (!sceneFactory_) {
+        Logger::Log(log_, "Scene change skipped: no scene factory is configured.");
+        return false;
+    }
+    const auto id = static_cast<std::uint32_t>(sceneId);
+    std::unique_ptr<BaseScene> nextScene;
+    try {
+        nextScene = sceneFactory_->CreateScene(sceneId);
+    } catch (const std::exception& error) {
+        Logger::Log(log_, std::format("Scene change skipped: factory failed for ID {} ({}).", id, error.what()));
+        return false;
+    } catch (...) {
+        Logger::Log(log_, std::format("Scene change skipped: unexpected factory error for ID {}.", id));
+        return false;
+    }
     if (!nextScene) {
-        throw std::invalid_argument("Unknown scene: " + std::string(sceneName));
+        Logger::Log(log_, std::format("Scene change skipped: unknown scene ID {}.", id));
+        return false;
     }
     nextScene_ = std::move(nextScene);
+    return true;
 }
 
 bool SceneManager::ApplyPendingScene(const SceneContext& context, TextureManager& textures)
@@ -77,6 +96,6 @@ void SceneManager::Finalize()
         scene_.reset();
     }
     nextScene_.reset();
-    sceneFactory_ = nullptr;
+    sceneFactory_.reset();
     sceneFrame_ = 0;
 }

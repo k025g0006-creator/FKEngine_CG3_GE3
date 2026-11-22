@@ -7,12 +7,12 @@
 #include <filesystem>
 #include <stdexcept>
 
-TextureManager* TextureManager::instance_ = nullptr;
+std::unique_ptr<TextureManager> TextureManager::instance_;
 
 TextureManager* TextureManager::GetInstance()
 {
-    if (instance_ == nullptr) { instance_ = new TextureManager(); }
-    return instance_;
+    if (!instance_) { instance_ = std::make_unique<TextureManager>(ConstructorKey{}); }
+    return instance_.get();
 }
 
 void TextureManager::Finalize()
@@ -24,8 +24,7 @@ void TextureManager::Finalize()
             manager.srvManager_->Free(manager.srvManager_->GetCPUDescriptorHandle(entry.second.srvIndex));
         }
     }
-    delete instance_;
-    instance_ = nullptr;
+    instance_.reset();
 }
 
 void TextureManager::Initialize(SRVInformationManager& srvManager)

@@ -5,6 +5,7 @@
 #include <wrl.h>
 #include <string>
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <unordered_map>
 
@@ -14,7 +15,14 @@ class SRVInformationManager;
 // ファイルパスとテクスチャを関連付けて共有する。メインスレッドから利用する。
 class TextureManager
 {
+    class ConstructorKey
+    {
+        friend class TextureManager;
+        ConstructorKey() {}
+    };
+
 public:
+    explicit TextureManager(const ConstructorKey&) {}
     static TextureManager* GetInstance();
     // Spriteの解放とGPU完了待ちの後、DirectXBaseの解放前に呼ぶ。
     static void Finalize();
@@ -39,7 +47,7 @@ public:
     void ReleaseCompletedResources();
 
 private:
-    TextureManager() = default;
+    friend struct std::default_delete<TextureManager>;
     ~TextureManager() = default;
     TextureManager(const TextureManager&) = delete;
     TextureManager& operator=(const TextureManager&) = delete;
@@ -55,7 +63,7 @@ private:
     };
     static std::wstring MakePathKey(const std::string& filePath);
     const TextureData& FindTexture(const std::string& filePath) const;
-    static TextureManager* instance_;
+    static std::unique_ptr<TextureManager> instance_;
     DirectXBase* directXBase_ = nullptr; // mainから借りる。所有しない。
     SRVInformationManager* srvManager_ = nullptr; // mainから借りる。
     uint32_t nextTextureIndex_ = 0;

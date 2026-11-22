@@ -1,13 +1,14 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
-#include <string_view>
 
 class BaseScene;
+enum class SceneId : std::uint32_t;
 
 class AbstractSceneFactory
 {
 public:
     virtual ~AbstractSceneFactory() = default;
-    virtual std::unique_ptr<BaseScene> CreateScene(std::string_view sceneName) = 0;
+    virtual std::unique_ptr<BaseScene> CreateScene(SceneId sceneId) = 0;
 };

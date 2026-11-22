@@ -10,7 +10,14 @@ class DirectXBase;
 // ファイルパスに紐づけてModelを所有する。メインスレッドから利用する。
 class ModelManager
 {
+    class ConstructorKey
+    {
+        friend class ModelManager;
+        ConstructorKey() {}
+    };
+
 public:
+    explicit ModelManager(const ConstructorKey&) {}
     static ModelManager* GetInstance();
     // GPU完了後、全Objectの解放後、TextureManager/DirectXBaseの終了前に呼ぶ。
     static void Finalize();
@@ -22,12 +29,12 @@ public:
     // 手続き生成モデルも同じ基盤を借りられる。Finalizeまで有効。
     ModelBase* GetModelBase() const { return modelBase_.get(); }
 private:
-    ModelManager() = default;
+    friend struct std::default_delete<ModelManager>;
     ~ModelManager() = default;
     ModelManager(const ModelManager&) = delete;
     ModelManager& operator=(const ModelManager&) = delete;
     static std::wstring MakePathKey(const std::string& filePath);
-    static ModelManager* instance_;
+    static std::unique_ptr<ModelManager> instance_;
     // 逆順で破棄されるため、Modelが先、基盤が後に解放される。
     std::unique_ptr<ModelBase> modelBase_;
     std::map<std::wstring, std::unique_ptr<Model>> models_;

@@ -9,7 +9,6 @@
 #include <chrono>
 #include <exception>
 #include <format>
-#include <stdexcept>
 #include <utility>
 
 #pragma comment(lib, "d3d12.lib")
@@ -149,17 +148,15 @@ bool FPFramework::Initialize()
     return true;
 }
 
-bool FPFramework::StartScenes(std::unique_ptr<AbstractSceneFactory> factory, std::string_view initialScene,
+bool FPFramework::StartScenes(std::unique_ptr<AbstractSceneFactory> factory, SceneId initialScene,
     bool smokeTest, std::vector<std::wstring> arguments)
 {
-    if (!factory) { throw std::invalid_argument("A scene factory is required."); }
     smokeTest_ = smokeTest;
     sceneArguments_ = std::move(arguments);
     resourceDirectory_ = GetExecutableDirectory() / "Resources";
-    sceneFactory_ = std::move(factory);
-    sceneManager_.SetSceneFactory(*sceneFactory_);
-    sceneManager_.ChangeScene(initialScene);
-    if (sceneManager_.ApplyPendingScene(GetSceneContext(), *textures_)) { return true; }
+    sceneManager_.SetSceneFactory(std::move(factory));
+    if (sceneManager_.ChangeScene(initialScene) &&
+        sceneManager_.ApplyPendingScene(GetSceneContext(), *textures_)) { return true; }
     RequestEnd(2);
     return false;
 }
@@ -202,7 +199,6 @@ void FPFramework::Draw()
 void FPFramework::Finalize()
 {
     sceneManager_.Finalize();
-    sceneFactory_.reset();
     if (masterVoice_) 
     {
         masterVoice_->DestroyVoice();

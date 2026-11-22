@@ -2,7 +2,7 @@
 
 #include "Logger.h"
 #include "SceneFactory.h"
-#include "SceneNames.h"
+#include "SceneId.h"
 #include "TextureManager.h"
 #include <shellapi.h>
 #include <algorithm>
@@ -31,7 +31,7 @@ bool Game::Initialize()
         }
     }
 #endif
-    return StartScenes(std::make_unique<SceneFactory>(), SceneNames::Title, smokeTest, std::move(sceneArguments));
+    return StartScenes(std::make_unique<SceneFactory>(), SceneId::Title, smokeTest, std::move(sceneArguments));
 }
 
 void Game::Draw()
@@ -55,7 +55,10 @@ void Game::OnFrameComplete()
     }
     switch (smokePhase_) {
     case SmokePhase::Title:
-        sceneManager_.ChangeScene(SceneNames::Gameplay);
+        if (!sceneManager_.ChangeScene(SceneId::Gameplay)) {
+            RequestEnd(1);
+            break;
+        }
         smokePhase_ = SmokePhase::Gameplay;
         break;
     case SmokePhase::Gameplay:

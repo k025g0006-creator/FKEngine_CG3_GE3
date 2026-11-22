@@ -5,5 +5,5 @@
 class SceneFactory final : public AbstractSceneFactory
 {
 public:
-    std::unique_ptr<BaseScene> CreateScene(std::string_view sceneName) override;
+    std::unique_ptr<BaseScene> CreateScene(SceneId sceneId) override;
 };

@@ -2,7 +2,7 @@
 
 #include "Input.h"
 #include "Logger.h"
-#include "SceneNames.h"
+#include "SceneId.h"
 #include "SpriteBase.h"
 #include "StringUtility.h"
 #include "TextureManager.h"
@@ -27,7 +27,7 @@ void TitleScene::UpdateInput(const Input& input, long, long, bool)
 {
     if (!smokeLog_ && (input.TriggerKey(DIK_RETURN) || input.TriggerKey(DIK_NUMPADENTER)))
     {
-        RequestSceneChange(SceneNames::Gameplay);
+        RequestSceneChange(SceneId::Gameplay);
     }
 }
 

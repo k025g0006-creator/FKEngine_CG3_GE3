@@ -58,9 +58,9 @@ DirectXTexとImGuiはソリューション内の静的ライブラリプロジ�
 
 `FKAlpha.vcxproj` は GE3 の `Source/App/main.cpp` を入口とし、最初に `TitleScene` を表示します。Enter で `GameScene` に進み、Esc でタイトルに戻ります。`TitleScene` はタイトル用の 2D スプライトを描画し、`GameScene` はゲームプレイのスプライト、3D オブジェクト、パーティクル、BGM・SE と ImGui の操作を担当します。
 
-各シーンは `RequestSceneChange()` に `TITLE` や `GAMEPLAY` などの名前を渡して、切り替えを予約します。`SceneManager::ChangeScene()` はエンジン層の `AbstractSceneFactory` を通じて、アプリ層の `SceneFactory` に生成を依頼します。シーン名とクラスの対応は `SceneFactory.cpp` にあります。
+各シーンは `RequestSceneChange()` に `SceneId::Title` や `SceneId::Gameplay` を渡して切り替えを予約します。`SceneManager::ChangeScene()` はエンジン層の `AbstractSceneFactory` を通じて、アプリ層の `SceneFactory` に生成を依頼します。ID の定義とクラスへの対応付けはアプリ層の `SceneId.h` と `SceneFactory.cpp` にあります。
 
-`FPFramework` がファクトリーを所有し、Singleton の `SceneManager` がそのファクトリーを借りて使います。`SceneManager` は実行中と予約中のシーンを `std::unique_ptr<BaseScene>` で所有します。次のフレームの更新前に、旧シーンの終了・破棄と新シーンの初期化を行います。
+`FPFramework` が `SceneManager` を所有します。`SceneManager` はファクトリーと実行中・予約中のシーンを所有します。存在しない ID やファクトリーでの生成失敗を検出すると、エラーをログに記録して実行中のシーンと既存の予約を維持します。生成に成功した場合は、次のフレームの更新前に旧シーンを終了・破棄し、新シーンを初期化します。
 
 `CG3.vcxproj` は `Source/CG3/Cg3DemoMain.cpp` を入口とする評価課題1の実行プロジェクトです。`Archive` には旧版の資料や提出物を保管しています。
 
@@ -228,3 +228,5 @@ object.SetModel("terrain.obj"); // 同じ配置で別の見た目に切り替え
 ImGuiの「モンスターボール」内の「2体目のモデル」で、球・plane・terrainを切り替えられます。手続き生成した球は従来のModelData初期化を使い、Managerが所有するModelBaseを借りています。smoke-testはキャッシュの重複防止、未登録検索、失敗時のキャッシュ不変性、モデルの差し替えと3フレーム描画を確認します。
 
 終了時はGPU完了 → 全Objectと手続き生成Modelの解放 → ModelManager::Finalize → TextureManager::Finalize → SRVInformationManager::Finalize → DirectXBaseの終了の順です。Finalize後にGetInstanceを呼ぶと新しい未初期化インスタンスが生成されるため、終了処理では呼びません。
+
+`ModelManager` と `TextureManager` は、それぞれのインスタンスを `std::unique_ptr` で所有します。`GetInstance()` は借用ポインタを返し、`Finalize()` の `reset()` でデストラクタが呼ばれます。生成にはクラス内だけで作れる `ConstructorKey` を渡す Passkey Idiom を使っています。

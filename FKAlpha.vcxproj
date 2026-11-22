@@ -157,7 +157,7 @@
     <ClCompile Include="Source\Engine\Core\SceneManager.cpp" />
     <ClInclude Include="Source\App\SceneFactory.h" />
     <ClCompile Include="Source\App\SceneFactory.cpp" />
-    <ClInclude Include="Source\App\SceneNames.h" />
+    <ClInclude Include="Source\App\SceneId.h" />
     <ClInclude Include="Source\App\TitleScene.h" />
     <ClCompile Include="Source\App\TitleScene.cpp" />
     <ClCompile Include="Source\App\GameScene.cpp">

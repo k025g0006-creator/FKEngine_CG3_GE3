@@ -35,7 +35,7 @@ protected:
     virtual bool IsEndRequest() const { return endRequested_; }
     void RequestEnd(int exitCode = 0) { endRequested_ = true; exitCode_ = exitCode; }
     static std::filesystem::path GetExecutableDirectory();
-    bool StartScenes(std::unique_ptr<AbstractSceneFactory> factory, std::string_view initialScene,
+    bool StartScenes(std::unique_ptr<AbstractSceneFactory> factory, SceneId initialScene,
         bool smokeTest, std::vector<std::wstring> arguments);
     bool IsSceneSmokeTest() const { return smokeTest_; }
 
@@ -56,15 +56,14 @@ protected:
     DIMOUSESTATE mouseState_{};
     SRVInformationManager srvManager_;
     TextureManager* textures_ = nullptr;
-    SceneManager& sceneManager_ = SceneManager::GetInstance();
     std::optional<SpriteBase> spriteBase_;
     Microsoft::WRL::ComPtr<IXAudio2> audio_;
     bool audioReady_ = false;
     std::array<float, 4> clearColor_{0.1f, 0.25f, 0.5f, 1.0f};
+    SceneManager sceneManager_{log_};
 
 private:
     SceneContext GetSceneContext();
-    std::unique_ptr<AbstractSceneFactory> sceneFactory_;
     std::filesystem::path resourceDirectory_;
     std::vector<std::wstring> sceneArguments_;
     bool smokeTest_ = false;

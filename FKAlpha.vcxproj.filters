@@ -108,7 +108,7 @@
     <ClCompile Include="Source\App\SceneFactory.cpp">
       <Filter>Source\App</Filter>
     </ClCompile>
-    <ClInclude Include="Source\App\SceneNames.h">
+    <ClInclude Include="Source\App\SceneId.h">
       <Filter>Source\App</Filter>
     </ClInclude>
     <ClInclude Include="Source\App\TitleScene.h">

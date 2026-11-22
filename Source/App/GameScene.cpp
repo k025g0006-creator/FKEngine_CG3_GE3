@@ -2,7 +2,7 @@
 #include "Input.h"
 #include "Logger.h"
 #include "ModelManager.h"
-#include "SceneNames.h"
+#include "SceneId.h"
 #include "TextureManager.h"
 #include "WinApp.h"
 #include <cmath>
@@ -240,7 +240,7 @@ void GameScene::UpdateInput(const Input& input, long mouseX, long mouseY, bool i
 
 void GameScene::ReturnToTitle()
 {
-    RequestSceneChange(SceneNames::Title);
+    RequestSceneChange(SceneId::Title);
 }
 
 void GameScene::Update(float deltaTime)

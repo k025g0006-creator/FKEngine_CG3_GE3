@@ -5,7 +5,6 @@
 #include <iosfwd>
 #include <span>
 #include <string>
-#include <string_view>
 
 class DirectXBase;
 class Input;
@@ -13,6 +12,7 @@ class SceneManager;
 class SRVInformationManager;
 class SpriteBase;
 struct IXAudio2;
+enum class SceneId : std::uint32_t;
 
 struct SceneContext
 {
@@ -42,7 +42,7 @@ public:
 #endif
 
 protected:
-    void RequestSceneChange(std::string_view sceneName);
+    bool RequestSceneChange(SceneId sceneId);
 
 private:
     friend class SceneManager;

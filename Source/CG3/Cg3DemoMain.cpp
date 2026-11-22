@@ -7,6 +7,7 @@
 #include <fstream>
 #include <chrono>
 #include <exception>
+#include <memory>
 #include <d3d12.h>
 #include <vector>
 #pragma comment(lib, "d3d12.lib")
@@ -898,16 +899,24 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		}
 	};
 
+	struct ComApartment
+	{
+		const HRESULT result = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+		~ComApartment()
+		{
+			if (SUCCEEDED(result)) { CoUninitialize(); }
+		}
+	} comApartment;
+	if (FAILED(comApartment.result)) { return 1; }
+
 	D3DResourceLeakChecker leakCheck;
 	Microsoft::WRL::ComPtr<ID3D12Device> device;
 
 	ComPtr<IXAudio2> xAudio2;
-	IXAudio2MasteringVoice* masterVoice;
+	std::unique_ptr<IXAudio2MasteringVoice, AudioVoiceDeleter> masterVoice;
 
 	Sound sound1;
 
-
-	CoInitializeEx(0, COINIT_MULTITHREADED);
 
 #ifdef _DEBUG
 	ComPtr<ID3D12Debug1> debugController = nullptr;
@@ -947,7 +956,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	std::ofstream logStream(logFilePath);
 
 	// ウィンドウの生成
-	WinApp* winApp = new WinApp();
+	auto winApp = std::make_unique<WinApp>();
 	winApp->Initialize();
 	HWND hwnd = winApp->GetHwnd();
 
@@ -1187,8 +1196,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 		if (imguiWin32Initialized) { ImGui_ImplWin32_Shutdown(); }
 		ImGui::DestroyContext();
 		winApp->Finalize();
-		delete winApp;
-		CoUninitialize();
 		return 1;
 	}
 #endif
@@ -2150,14 +2157,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 	// xAudioエンジンのインスタンスを生成
 	hr = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
 
-	// マスターボイスを生成
-	hr = xAudio2->CreateMasteringVoice(&masterVoice);
-
-	// 音声読み込み
-	sound1.Load("Resources/Alarm01.wav");
-
-	// 音声再生
-	sound1.Play(xAudio2.Get());
+	IXAudio2MasteringVoice* createdVoice = nullptr;
+	if (SUCCEEDED(hr)) { hr = xAudio2->CreateMasteringVoice(&createdVoice); }
+	if (SUCCEEDED(hr))
+	{
+		masterVoice.reset(createdVoice);
+		sound1.Load("Resources/Alarm01.wav");
+		sound1.Play(xAudio2.Get());
+	}
+	else
+	{
+		Log(logStream, std::format("CG3 audio initialization failed (0x{:08X}).", static_cast<unsigned>(hr)));
+	}
 
 	while (true)
 	{
@@ -2913,15 +2924,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _
 
 	// ウィンドウの終了処理
 	winApp->Finalize();
-	delete winApp;
-
-	CoUninitialize();
-
-	// 音声データ解放
-	sound1.Unload();
-
-	// xAudio2解放
-	xAudio2.Reset();
 
 	return 0;
 }

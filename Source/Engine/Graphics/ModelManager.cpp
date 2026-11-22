@@ -4,18 +4,17 @@
 #include <filesystem>
 #include <stdexcept>
 
-ModelManager* ModelManager::instance_ = nullptr;
+std::unique_ptr<ModelManager> ModelManager::instance_;
 
 ModelManager* ModelManager::GetInstance()
 {
-    if (!instance_) { instance_ = new ModelManager(); }
-    return instance_;
+    if (!instance_) { instance_ = std::make_unique<ModelManager>(ConstructorKey{}); }
+    return instance_.get();
 }
 
 void ModelManager::Finalize()
 {
-    delete instance_;
-    instance_ = nullptr;
+    instance_.reset();
 }
 
 void ModelManager::Initialize(DirectXBase* directXBase)
